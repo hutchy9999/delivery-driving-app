@@ -25,11 +25,13 @@ const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL:'
   ok((await p.textContent('#derived')).includes('£0.14'), 'default fuel/mile shown (1.40, 45mpg = £0.14?) ' + await p.textContent('#derived'));
   await p.fill('[name=fuelPrice]', '1.70'); await p.fill('[name=mpg]', '32');
   ok((await p.textContent('#derived')).includes('£0.24'), 'derived fuel/mile updates live');
-  await p.fill('[name=insuranceMonthly]', '150'); await p.fill('[name=hoursPerWeek]', '25');
+  ok(await p.inputValue('[name=insurancePerHour]') === '1.16', 'insurance defaults to £1.16/hr');
+  ok(!(await p.$('[name=hoursPerWeek]')) && !(await p.$('[name=otherMonthly]')), 'hours/week and monthly boxes removed');
+  await p.fill('[name=insurancePerHour]', '1.16');
   await p.fill('[name=maintPence]', '-5');
   await tap('[data-tab=home]');  // leave without pressing save
   const st = await ls('sp.settings');
-  ok(st && st.fuelPrice === 1.7 && st.mpg === 32 && st.insuranceMonthly === 150, 'settings auto-saved on leaving: ' + JSON.stringify(st));
+  ok(st && st.fuelPrice === 1.7 && st.mpg === 32 && st.insurancePerHour === 1.16 && !('hoursPerWeek' in st), 'settings auto-saved on leaving: ' + JSON.stringify(st));
   ok(st.maintPence === 0, 'negative maintenance clamped to 0');
   ok(!(await p.isVisible('.notice')), 'banner gone after settings saved');
   await tap('[data-tab=settings]');
@@ -86,6 +88,7 @@ const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL:'
   ok(!(await ls('sp.active')), 'active shift cleared');
   const detail = await p.textContent('main');
   ok(detail.includes('£7.25') && detail.includes('test <b>note</b>'), 'detail shows fuel £7.25 and escaped note');
+  ok(detail.includes('Insurance (£1.16/hr)') && detail.includes('−£5.80'), '5h shift charges £5.80 insurance');
 
   // 6. Android back from detail should not reopen the end form
   await p.goBack(); ok(!['#end'].includes(await hash()), 'back after save does not return to form: ' + await hash());

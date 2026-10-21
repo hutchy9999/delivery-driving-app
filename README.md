@@ -7,7 +7,7 @@ A personal web app for delivery driving. It shows your **real profit per hour** 
 
 ## Using it
 
-1. **Settings:** enter your petrol price (£/L), UK MPG, insurance and other monthly costs, how many hours you drive a week, and your tax reserve %.
+1. **Settings:** enter your petrol price (£/L), UK MPG, insurance (£ per hour on shift, e.g. Zego pay-as-you-go), and your tax reserve %.
 2. **Start shift:** optionally type in your odometer reading, then tap **Start shift**.
 3. **End shift:** enter your total earnings from Deliveroo and your odometer reading. You get profit per hour, costs and take-home.
 4. **History:** shifts are grouped by week. Tap a shift to see the full breakdown, or to edit or delete it.
@@ -17,8 +17,8 @@ A personal web app for delivery driving. It shows your **real profit per hour** 
 
 - Fuel = miles ÷ MPG × 4.546 litres per UK gallon × price per litre
 - Maintenance = miles × pence per mile
-- Fixed costs per hour = (insurance + other monthly costs) ÷ (hours per week × 52 ÷ 12)
-- Profit = earnings − fuel − maintenance − fixed costs
+- Insurance = hours on shift × £ per hour
+- Profit = earnings − fuel − maintenance − insurance
 - Take-home = profit − tax reserve %
 
 Each shift keeps a copy of the settings it was recorded with, so changing petrol price later doesn't rewrite old shifts.

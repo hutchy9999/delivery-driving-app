@@ -8,9 +8,7 @@ const DEFAULT_SETTINGS = {
   fuelPrice: 1.40,      // £ per litre
   mpg: 45,              // UK MPG
   maintPence: 5,        // pence per mile (tyres, servicing, wear)
-  insuranceMonthly: 0,  // £ per month
-  otherMonthly: 0,      // £ per month (phone data, bag, etc.)
-  hoursPerWeek: 25,     // used to spread monthly costs per hour
+  insurancePerHour: 1.16, // £ per hour on shift (pay-as-you-go, e.g. Zego)
   taxPct: 20,           // % of profit set aside for tax
 };
 
@@ -326,7 +324,7 @@ function renderShift(view, id) {
       ${line('Earnings', money(r.earnings))}
       ${line(`Fuel (${num(r.litres)} L)`, '−' + money(r.fuel))}
       ${line('Maintenance', '−' + money(r.maintenance))}
-      ${line('Insurance & fixed costs', '−' + money(r.fixed))}
+      ${line(`Insurance (${money(insurancePerHour(s))}/hr)`, '−' + money(r.insurance))}
       ${line('Profit before tax', money(r.profit), 'total')}
       ${line(`Tax reserve (${num(s.taxPct)}%)`, '−' + money(r.taxReserve))}
       ${line('Take-home', money(r.takeHome), 'total')}
@@ -415,10 +413,8 @@ function renderSettings(view) {
       ${field('fuelPrice', 'Petrol price (£ per litre)', '', '0.001')}
       ${field('mpg', 'Average MPG', '(UK MPG, as shown on your dashboard)', '0.1')}
       ${field('maintPence', 'Maintenance (pence per mile)', '(tyres, servicing, wear. 5–10p is typical)', '0.1')}
-      <h2>Monthly costs</h2>
-      ${field('insuranceMonthly', 'Insurance (£ per month)', '(including hire & reward)')}
-      ${field('otherMonthly', 'Other fixed costs (£ per month)', '(phone data, bag, etc.)')}
-      ${field('hoursPerWeek', 'Hours you drive per week', '(spreads monthly costs over your hours)', '1')}
+      <h2>Insurance</h2>
+      ${field('insurancePerHour', 'Insurance (£ per hour on shift)', '(pay-as-you-go, e.g. Zego)')}
       <h2>Tax</h2>
       ${field('taxPct', 'Tax reserve (% of profit)', '(money to put aside for your tax bill)', '1')}
       <div id="derived" class="preview"></div>
@@ -440,8 +436,7 @@ function renderSettings(view) {
   const updateDerived = () => {
     const d = read();
     $('#derived').innerHTML = `
-      <div class="line"><span>Fuel cost per mile</span><b>${money(fuelCostPerMile(d))}</b></div>
-      <div class="line"><span>Fixed costs per hour</span><b>${money(fixedCostPerHour(d))}</b></div>`;
+      <div class="line"><span>Fuel cost per mile</span><b>${money(fuelCostPerMile(d))}</b></div>`;
   };
   // Saved automatically when a box is changed, so nothing is lost by switching tabs.
   const persist = (announce) => {
@@ -482,14 +477,14 @@ function exportCsv() {
   const shifts = store.shifts;
   if (!shifts.length) return toast('No shifts to export yet');
   const cols = ['date', 'start', 'end', 'hours', 'start_odometer', 'end_odometer', 'miles', 'earnings',
-    'fuel_litres', 'fuel_cost', 'maintenance', 'fixed_costs', 'total_costs', 'profit', 'profit_per_hour',
+    'fuel_litres', 'fuel_cost', 'maintenance', 'insurance', 'total_costs', 'profit', 'profit_per_hour',
     'tax_reserve', 'take_home', 'petrol_price', 'mpg', 'note'];
   const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const f2 = (n) => n.toFixed(2);
   const rows = [...shifts].reverse().map((s) => {
     const r = calcShift(s);
     return [toLocalInput(s.start).slice(0, 10), timeLabel(s.start), timeLabel(s.end), f2(r.hours), s.startOdo, s.endOdo,
-      r.miles, f2(r.earnings), f2(r.litres), f2(r.fuel), f2(r.maintenance), f2(r.fixed), f2(r.costs), f2(r.profit),
+      r.miles, f2(r.earnings), f2(r.litres), f2(r.fuel), f2(r.maintenance), f2(r.insurance), f2(r.costs), f2(r.profit),
       f2(r.profitPerHour), f2(r.taxReserve), f2(r.takeHome), s.settings.fuelPrice, s.settings.mpg, s.note].map(q).join(',');
   });
   download(`shifts-${today()}.csv`, [cols.join(','), ...rows].join('\n'), 'text/csv');
