@@ -7,13 +7,15 @@ A personal web app for delivery driving. It shows your **real profit per hour** 
 
 ## Using it
 
-1. **Settings:** enter your petrol price (£/L), UK MPG, and insurance (£ per hour on shift, e.g. Zego pay-as-you-go).
-2. **Daily profit graph:** at the top of the Shift tab. It shows profit before tax for each of the last 14 days, with average profit, fuel and hours per day worked underneath. Tap or drag across it to see a day.
-3. **Start shift:** optionally type in your odometer reading, then tap **Start shift**.
-4. **Order tab:** when an offer comes in, type the fee and miles (and minutes if the offer shows them). It shows the order's profit per hour after running costs, with a verdict: worth taking, borderline or not worth it.
-5. **End shift:** enter your total earnings from Deliveroo and your odometer reading. You get profit per hour and a breakdown of your costs.
-6. **History:** shifts are grouped by week. Tap a shift to see the full breakdown, or to edit or delete it.
-7. **Backups:** in Settings, use **Download backup file** now and then. Clearing Chrome's data deletes your shifts.
+1. **Settings (⚙️ top right):** enter your petrol price (£/L), UK MPG, and insurance (£ per hour on shift, e.g. Zego pay-as-you-go).
+2. **Shift tab:** daily profit graph for the last 14 days, with average profit, fuel and hours per day worked. Tap **Start shift** (optionally with your odometer reading), and **End shift** to enter your earnings.
+3. **Order tab**, in three steps:
+   - **Offer:** type the fee and miles (and minutes if the offer shows them), and optionally the restaurant. It shows the order's profit per hour and a verdict: worth taking, borderline or not worth it. If you've timed that restaurant before, it uses its own average wait.
+   - **Pickup:** shows your saved parking for the restaurant, with directions to it. On a first visit, tap **Save parking spot here** once you've parked. Tap **I've arrived** to start the wait timer.
+   - **Waiting:** tap **Got the food** to save the wait time. While waiting, you can note where you parked, the time limit, how easy it was, and a note for next time.
+4. **Places tab:** your restaurants, with average wait, parking and notes. Sort by most visited or slowest wait. Tap one to edit it.
+5. **History tab:** shifts grouped by week. Tap a shift to see the breakdown, or to edit or delete it.
+6. **Backups:** in Settings, use **Download backup file** now and then. Clearing Chrome's data deletes your shifts and places.
 
 ## How it calculates
 
@@ -21,7 +23,7 @@ A personal web app for delivery driving. It shows your **real profit per hour** 
 - Maintenance = miles × pence per mile
 - Insurance = hours on shift × £ per hour
 - Profit = earnings − fuel − maintenance − insurance
-- Order £/hr = (fee − miles × running cost per mile − minutes × insurance) ÷ minutes × 60. Without minutes, minutes = miles ÷ town speed × 60 + stop time.
+- Order £/hr = (fee − miles × running cost per mile − minutes × insurance) ÷ minutes × 60. Without minutes, minutes = miles ÷ town speed × 60 + stop time, where stop time is the restaurant's average wait (last 10 visits) + parking & handover time, or the general stop time if the restaurant hasn't been timed.
 
 Each shift keeps a copy of the settings it was recorded with, so changing petrol price later doesn't rewrite old shifts.
 

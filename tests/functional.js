@@ -5,7 +5,7 @@ let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL:', msg); } };
 (async () => {
   const b = await chromium.launch();
-  const ctx = await b.newContext({ ...devices['Pixel 7'], acceptDownloads: true });
+  const ctx = await b.newContext({ ...devices['Pixel 7'], acceptDownloads: true, permissions: ['geolocation'], geolocation: { latitude: 51.5072, longitude: -0.1276, accuracy: 12 } });
   const p = await ctx.newPage();
   const errors = [];
   p.on('pageerror', e => errors.push(e.message));
@@ -40,7 +40,7 @@ const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL:'
   ok(st && st.fuelPrice === 1.7 && st.mpg === 32 && st.insurancePerHour === 1.16 && !('hoursPerWeek' in st), 'settings auto-saved on leaving: ' + JSON.stringify(st));
   ok(st.maintPence === 0, 'negative maintenance clamped to 0');
   ok(!(await p.isVisible('.notice')), 'banner gone after settings saved');
-  await tap('[data-tab=settings]');
+  await tap('#gear');
   ok(await p.inputValue('[name=mpg]') === '32', 'settings shown after reopening');
   await p.fill('[name=maintPence]', '5');
   await p.fill('[name=mpg]', '0'); await tap('#sf button[type=submit]');
@@ -51,10 +51,14 @@ const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL:'
   ok((await ls('sp.settings')).maintPence === 5, 'maintenance saved');
 
   // 3. tabs
-  for (const t of ['history', 'settings', 'home']) {
+  for (const t of ['order', 'places', 'history', 'home']) {
     await tap(`[data-tab=${t}]`);
     ok(await p.getAttribute(`[data-tab=${t}]`, 'aria-current') === 'page', `tab ${t} marked current`);
   }
+  ok(!(await p.$('[data-tab=settings]')), 'settings is no longer a tab');
+  await tap('#gear');
+  ok(await hash() === '#settings' && await p.$eval('#gear', (g) => g.classList.contains('active')), 'gear opens settings');
+  await tap('[data-tab=home]');
 
   // 4. start, cancel (dismiss + accept)
   await p.fill('#odo', '48210'); await tap('#start');
@@ -144,29 +148,33 @@ const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL:'
   await tap('text=+ Add a past shift'); ok(await hash() === '#add', 'history add button');
 
   // 11. exports
-  await tap('[data-tab=settings]');
+  await tap('#gear');
   const [csv] = await Promise.all([p.waitForEvent('download'), tap('#csv')]);
   const csvText = fs.readFileSync(await csv.path(), 'utf8');
   ok(csv.suggestedFilename().endsWith('.csv') && csvText.split('\n').length === 2 && csvText.includes('"81.00"'), 'CSV export');
   const [bk] = await Promise.all([p.waitForEvent('download'), tap('#backup')]);
   const backup = JSON.parse(fs.readFileSync(await bk.path(), 'utf8'));
-  ok(backup.app === 'shift-profit' && backup.shifts.length === 1, 'backup export');
+  ok(backup.app === 'shift-profit' && backup.shifts.length === 1 && Array.isArray(backup.places), 'backup export includes places');
 
   // 12. restore: bad entries filtered, missing settings filled; same file twice
+  backup.places.push({ id: 'pl1', name: 'Test Diner', waits: [{ at: '2026-10-01T12:00:00Z', mins: 5 }] }, { name: 'no id' }, null);
   backup.shifts.push({ id: 'x2', start: '2026-09-01T10:00:00Z', end: '2026-09-01T12:00:00Z', miles: 10, earnings: 20 }, { junk: true }, null);
   const f1 = require('os').tmpdir() + '/restore.json'; fs.writeFileSync(f1, JSON.stringify(backup));
   const restore = async (file) => { const [fc] = await Promise.all([p.waitForEvent('filechooser'), tap('#restore')]); await fc.setFiles(file); await p.waitForTimeout(150); };
   await restore(f1);
   ok(lastDialog.includes('Restore 2 shifts'), 'restore counts only valid shifts: ' + lastDialog);
-  ok((await ls('sp.shifts')).length === 2, 'restored 2 shifts');
+  const restoredPlaces = await ls('sp.places');
+  ok((await ls('sp.shifts')).length === 2 && restoredPlaces.length === 1 && restoredPlaces[0].parkType === '' && restoredPlaces[0].spot === null, 'restored 2 shifts and 1 valid place');
+  ok(lastDialog.includes('2 shifts and 1 place from'), 'restore dialog counts places');
   await p.evaluate(() => localStorage['sp.shifts'] = '[]');
   lastDialog = ''; await restore(f1);
   ok(lastDialog.includes('Restore 2'), 'same file can be chosen twice');
   await tap('[data-tab=history]');
   ok((await p.$$('.shift-row')).length === 2, 'history renders restored shift without settings');
   const f2 = require('os').tmpdir() + '/bad.json'; fs.writeFileSync(f2, '{"hello":1}');
-  await tap('[data-tab=settings]'); await restore(f2);
+  await tap('#gear'); await restore(f2);
   ok((await toast()).includes("doesn't look like"), 'bad file rejected');
+  await p.evaluate(() => localStorage.removeItem('sp.places'));
 
   // 12b. order calculator (settings: £1.70/L, 32 MPG, 5p/mile, £1.16/hr, target £15, 15 mph, 8 min)
   await tap('[data-tab=order]');
@@ -195,19 +203,97 @@ const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL:'
   ok(await p.inputValue('[name=fee]') === '' && await p.inputValue('[name=miles]') === '' && (await p.textContent('#order-result')).includes('Type the fee'), 'clear empties the calculator');
   ok(await p.evaluate(() => document.activeElement.name) === 'fee', 'clear refocuses fee');
   ok(!(await p.textContent('main')).toLowerCase().includes('cheat'), 'no cheat sheet');
-  await tap('[data-tab=settings]');
+  await tap('#gear');
   await p.fill('[name=goodPerHour]', '20'); await p.fill('[name=okPerHour]', '15'); await p.fill('[name=stopMins]', '5');
   await tap('[data-tab=order]');
   await p.fill('[name=fee]', '4'); await p.fill('[name=miles]', '1.5');
   res = await p.textContent('#order-result');
   ok(res.includes('£18.27/hr') && res.includes('Borderline') && res.includes('11 min') && res.includes('from £20.00/hr, borderline from £15.00/hr'), 'order settings take effect: ' + res.replace(/\s+/g, ' '));
-  await tap('[data-tab=settings]');
+  await tap('#gear');
   await p.fill('[name=goodPerHour]', '12'); await p.fill('[name=okPerHour]', '10'); await p.fill('[name=stopMins]', '8');
+  await tap('[data-tab=home]');
+
+  // 12c. places + order flow (settings: £1.70/L, 32 MPG, 5p/mile, £1.16/hr, 15 mph, 8 min stops, 3 min handover)
+  await tap('[data-tab=places]');
+  ok((await p.textContent('main')).includes('No places yet'), 'places empty state');
+  await tap('[data-tab=order]');
+  ok((await p.textContent('.steps')).replace(/\s+/g, ' ').includes('1 Offer'), 'offer step shown');
+  await p.fill('[name=fee]', '5'); await p.fill('[name=miles]', '2');
+  await p.fill('.picker-input', "Nando's");
+  ok((await p.textContent('.sugg')).includes('Add new place "Nando\'s"'), 'offers to add a new place');
+  await tap('.sugg [data-new]');
+  ok((await p.textContent('.picked')).includes("Nando's") && (await p.textContent('.picked')).includes('No waits timed yet'), 'new place picked');
+  res = await p.textContent('#order-result');
+  ok(res.includes('8 min stops') && res.includes('16 min'), 'unknown restaurant uses general stop time: ' + res.replace(/\s+/g, ' '));
+  await tap('#take');
+  ok((await p.textContent('.steps')).includes('✓ Offer') && (await p.textContent('.steps')).includes('2 Pickup'), 'pickup step');
+  ok((await p.textContent('main')).includes('First visit') && (await p.textContent('main')).includes('No parking saved yet'), 'first visit prompt');
+  await tap('#spot'); await p.waitForTimeout(300);
+  ok((await toast()).includes('Parking spot saved'), 'parking spot saved toast');
+  const href = await p.getAttribute('#directions', 'href');
+  ok(href && href.includes('51.5072,-0.1276') && href.includes('google.com/maps/dir'), 'directions to saved spot: ' + href);
+  await tap('#arrived');
+  ok((await p.textContent('.steps')).includes('3 Waiting') && /^\d\d:\d\d$/.test(await p.textContent('#wait-timer')), 'waiting step with timer');
+  await tap('[data-k=parkType][data-v=street]'); await tap('[data-k=parkLimit][data-v="60"]'); await tap('[data-k=ease][data-v=easy]');
+  await p.fill('textarea[name=note]', 'Bays on Mill St'); await p.locator('textarea[name=note]').blur();
+  let place = (await ls('sp.places'))[0];
+  ok(place.parkType === 'street' && place.parkLimit === '60' && place.ease === 'easy' && place.note === 'Bays on Mill St', 'parking details saved on tap: ' + JSON.stringify(place));
+  await tap('[data-k=ease][data-v=easy]');
+  ok((await ls('sp.places'))[0].ease === '', 'tapping a chosen chip again clears it');
+  await tap('[data-k=ease][data-v=easy]');
+  await p.evaluate(() => { const o = JSON.parse(localStorage['sp.order']); o.arrivedAt = new Date(Date.now() - 7 * 60000).toISOString(); localStorage['sp.order'] = JSON.stringify(o); });
+  await p.reload(); await p.waitForTimeout(100);
+  ok((await p.textContent('#wait-timer')).startsWith('07:'), 'timer survives the app closing');
+  await tap('#got');
+  ok((await toast()).includes("Saved: 7 min wait at Nando's"), 'wait saved toast');
+  ok((await p.textContent('.steps')).includes('1 Offer') && await p.inputValue('[name=fee]') === '', 'back to an empty offer');
+  ok((await ls('sp.places'))[0].waits.length === 1, 'one wait recorded');
+  // Second order from the same place: uses its own wait
+  await p.fill('[name=fee]', '5'); await p.fill('[name=miles]', '2'); await p.fill('.picker-input', 'nan');
+  ok((await p.textContent('.sugg')).includes('1 visit · avg wait 7 min') && (await p.textContent('.sugg')).includes('Easy'), 'known place suggested with wait and tag');
+  await tap('.sugg [data-id]');
+  res = await p.textContent('#order-result');
+  ok(res.includes("7 min avg wait at Nando's + 3 min parking & handover") && res.includes('18 min'), 'known restaurant uses its own wait: ' + res.replace(/\s+/g, ' '));
+  await tap('#take');
+  const pick = await p.textContent('main');
+  ok(pick.includes('Free street bay') && pick.includes('1 hr max') && pick.includes('Bays on Mill St') && await p.isVisible('#directions'), 'known place shows parking info');
+  await tap('#back');
+  ok(await p.inputValue('[name=fee]') === '5' && (await p.textContent('.picked')).includes("Nando's"), 'back to offer keeps values');
+  await tap('#take'); await tap('#arrived');
+  dialogAnswer = true; await tap('#cancel-order');
+  ok((await ls('sp.places'))[0].waits.length === 1 && (await p.textContent('.steps')).includes('1 Offer'), 'cancel order does not save a wait');
+  // Pickup without choosing a restaurant first
+  await tap('#take');
+  ok(await p.isVisible('.picker-input'), 'pickup asks which restaurant if none chosen');
+  await tap('#arrived');
+  ok(await p.isVisible('.picker-input'), 'waiting asks which restaurant if none chosen');
+  await tap('#got');
+  ok((await toast()).includes('Ready for the next order'), 'got food without a place');
+  // Places tab
+  await tap('[data-tab=places]');
+  ok((await p.textContent('.place-row')).includes("Nando's") && (await p.textContent('.place-row')).includes('spot saved'), 'place listed');
+  await p.fill('#place-search', 'Wok');
+  await tap('#add-place');
+  ok((await hash()).startsWith('#place/') && await p.inputValue('input[name=name]') === 'Wok', 'add place from search');
+  await p.fill('input[name=area]', 'Station Rd'); await p.locator('input[name=area]').blur(); await p.waitForTimeout(60);
+  ok((await ls('sp.places')).find((x) => x.name === 'Wok').area === 'Station Rd', 'area saved');
+  await p.fill('input[name=name]', ''); await p.locator('input[name=name]').blur(); await p.waitForTimeout(60);
+  ok((await ls('sp.places')).find((x) => x.area === 'Station Rd').name === 'Wok', 'empty name refused');
+  dialogAnswer = false; await tap('#delete-place');
+  ok((await ls('sp.places')).length === 2, 'delete place dismissed keeps it');
+  dialogAnswer = true; await tap('#delete-place');
+  ok((await ls('sp.places')).length === 1 && await hash() === '#places', 'delete place');
+  await tap('[data-sort=slowest]');
+  ok(await p.getAttribute('[data-sort=slowest]', 'aria-pressed') === 'true', 'sort toggle');
+  await tap('.place-row');
+  ok((await p.textContent('main')).includes('7 min') && await p.isVisible('#clear-spot'), 'place detail shows waits and spot');
+  await tap('#clear-spot');
+  ok(!(await ls('sp.places'))[0].spot, 'spot removed');
   await tap('[data-tab=home]');
 
   // 13. narrow phone: no sideways scrolling on any screen
   await p.setViewportSize({ width: 320, height: 640 });
-  for (const h of ['#home', '#order', '#settings', '#history', '#add', '#shift/' + id, '#edit/' + id]) {
+  for (const h of ['#home', '#order', '#places', '#settings', '#history', '#add', '#shift/' + id, '#edit/' + id]) {
     await p.goto(URL + h); await p.waitForTimeout(50);
     ok(!(await p.evaluate(() => document.documentElement.scrollWidth > innerWidth)), 'no overflow at 320px on ' + h);
   }

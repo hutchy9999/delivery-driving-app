@@ -2,7 +2,7 @@
 
 // ---------- Storage ----------
 
-const KEYS = { settings: 'sp.settings', shifts: 'sp.shifts', active: 'sp.active' };
+const KEYS = { settings: 'sp.settings', shifts: 'sp.shifts', active: 'sp.active', places: 'sp.places', order: 'sp.order' };
 
 const DEFAULT_SETTINGS = {
   fuelPrice: 1.40,      // £ per litre
@@ -12,7 +12,8 @@ const DEFAULT_SETTINGS = {
   goodPerHour: 12,      // order calculator: £/hr from which an order is worth taking
   okPerHour: 10,        // order calculator: £/hr from which an order is borderline
   townMph: 15,          // order calculator: average speed to estimate minutes
-  stopMins: 8,          // order calculator: restaurant wait, parking, handover
+  stopMins: 8,          // order calculator: restaurant wait, parking, handover (restaurant not timed yet)
+  handoverMins: 3,      // order calculator: parking and handover, added to a restaurant's average wait
 };
 
 function load(key, fallback) {
@@ -37,6 +38,10 @@ const store = {
   set shifts(v) { save(KEYS.shifts, v); },
   get active() { return load(KEYS.active, null); },
   set active(v) { save(KEYS.active, v); },
+  get places() { return load(KEYS.places, []); },
+  set places(v) { save(KEYS.places, v); },
+  get order() { return { ...EMPTY_ORDER, ...load(KEYS.order, {}) }; },
+  set order(v) { save(KEYS.order, v); },
 };
 
 // ---------- Formatting ----------
@@ -86,6 +91,8 @@ function toast(msg) {
   toast.t = setTimeout(() => { el.hidden = true; }, 2500);
 }
 
+const PIN_ICON = '<svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>';
+
 function profitClass(n) {
   return n < 0 ? 'neg' : 'pos';
 }
@@ -104,12 +111,13 @@ function render() {
   window.scrollTo(0, 0);
   const [route, id] = location.hash.slice(1).split('/');
   const view = $('#view');
-  const tab = { order: 'order', history: 'history', shift: 'history', edit: 'history', add: 'history', settings: 'settings' }[route] || 'home';
+  const tab = { order: 'order', places: 'places', place: 'places', history: 'history', shift: 'history', edit: 'history', add: 'history', settings: 'settings' }[route] || 'home';
   document.querySelectorAll('.tab').forEach((b) => {
     b.classList.toggle('active', b.dataset.tab === tab);
     if (b.dataset.tab === tab) b.setAttribute('aria-current', 'page');
     else b.removeAttribute('aria-current');
   });
+  $('#gear').classList.toggle('active', tab === 'settings');
 
   switch (route) {
     case 'end': return renderShiftForm(view, 'end');
@@ -117,6 +125,8 @@ function render() {
     case 'edit': return renderShiftForm(view, 'edit', id);
     case 'shift': return renderShift(view, id);
     case 'order': return renderOrder(view);
+    case 'places': return renderPlaces(view);
+    case 'place': return renderPlace(view, id);
     case 'history': return renderHistory(view);
     case 'settings': return renderSettings(view);
     default: return renderHome(view);
@@ -125,6 +135,7 @@ function render() {
 
 window.addEventListener('hashchange', render);
 document.querySelectorAll('.tab').forEach((b) => b.addEventListener('click', () => go('#' + b.dataset.tab)));
+$('#gear').addEventListener('click', () => go('#settings'));
 
 // ---------- Daily profit chart (last 14 days) ----------
 
@@ -470,37 +481,188 @@ function renderShift(view, id) {
   };
 }
 
-// ---------- Order calculator ----------
+// ---------- Places (restaurant notebook) ----------
 
-// Kept while the app is open, so switching to Deliveroo and back keeps the numbers.
-const orderInput = { fee: '', miles: '', mins: '' };
+const PARK_TYPES = { restaurant: 'Restaurant car park', street: 'Free street bay', loading: 'Loading bay' };
+const PARK_LIMITS = { 30: '30 min', 60: '1 hr', 120: '2 hr', none: 'None' };
+const EASE = { easy: 'Easy', tricky: 'Tricky', avoid: 'Avoid' };
+const MAX_WAIT_MINS = 90; // longer than this, the timer was probably left running
+
+function newId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+function getPlace(id) {
+  return store.places.find((p) => p.id === id) || null;
+}
+
+function updatePlace(id, changes) {
+  store.places = store.places.map((p) => (p.id === id ? { ...p, ...changes } : p));
+}
+
+function addPlace(name) {
+  const place = { id: newId(), name: name.trim(), area: '', note: '', parkType: '', parkLimit: '', ease: '', spot: null, waits: [] };
+  store.places = [...store.places, place];
+  return place;
+}
+
+// Average of the last 10 waits, in minutes, or null if never timed.
+function avgWait(p) {
+  const recent = (p.waits || []).slice(-10);
+  return recent.length ? recent.reduce((a, w) => a + w.mins, 0) / recent.length : null;
+}
+
+const placeName = (p) => esc(p.name) + (p.area ? ` <span class="muted">· ${esc(p.area)}</span>` : '');
+const easeTag = (p) => (p.ease ? `<span class="tag ${p.ease}">${EASE[p.ease]}</span>` : '');
+
+function placeMeta(p) {
+  const visits = (p.waits || []).length;
+  const avg = avgWait(p);
+  return visits ? `${visits} visit${visits > 1 ? 's' : ''} · avg wait ${Math.round(avg)} min` : 'No waits timed yet';
+}
+
+function parkingLine(p) {
+  if (!p.parkType) return '';
+  const limit = p.parkLimit && p.parkLimit !== 'none' ? ` · ${PARK_LIMITS[p.parkLimit]} max` : '';
+  return `<p class="park">🅿️ <b>${PARK_TYPES[p.parkType]}</b>${limit}</p>`;
+}
+
+function directionsUrl(spot) {
+  return `https://www.google.com/maps/dir/?api=1&destination=${spot.lat},${spot.lng}&travelmode=driving`;
+}
+
+function saveSpot(id, done) {
+  if (!navigator.geolocation) return toast("This phone can't share its location");
+  toast('Finding your location…');
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+      updatePlace(id, { spot: { lat, lng, accuracy, savedAt: new Date().toISOString() } });
+      toast(`Parking spot saved (to within ${Math.round(accuracy)} m)`);
+      done();
+    },
+    (err) => toast(err.code === 1 ? 'Location is blocked. Allow it for this site in Chrome settings.' : "Couldn't get your location. Try again outside."),
+    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+  );
+}
+
+// Search box that matches saved places as you type, with an option to add a new one.
+function placePicker(container, label, onPick) {
+  container.innerHTML = `
+    <label class="field"><span>${label}</span>
+      <input type="text" class="picker-input" autocomplete="off" placeholder="Type 2–3 letters, or paste the name"></label>
+    <div class="sugg"></div>`;
+  const input = $('.picker-input', container);
+  const list = $('.sugg', container);
+  const show = () => {
+    const q = input.value.trim().toLowerCase();
+    if (!q) { list.innerHTML = ''; return; }
+    const matches = store.places
+      .filter((p) => `${p.name} ${p.area}`.toLowerCase().includes(q))
+      .sort((a, b) => (b.waits || []).length - (a.waits || []).length)
+      .slice(0, 5);
+    const exact = matches.some((p) => p.name.toLowerCase() === q);
+    list.innerHTML = matches.map((p) => `
+        <button type="button" data-id="${esc(p.id)}">
+          <span><b>${placeName(p)}</b><small>${placeMeta(p)}</small></span>${easeTag(p)}
+        </button>`).join('') +
+      (exact ? '' : `<button type="button" data-new="1"><span class="accent-text">+ Add new place "${esc(input.value.trim())}"</span></button>`);
+  };
+  input.addEventListener('input', show);
+  list.addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    onPick(b.dataset.new ? addPlace(input.value) : getPlace(b.dataset.id));
+  });
+  return input;
+}
+
+// Parking type, time limit, how easy, and a note. Each tap saves straight away.
+function parkingEditor(p) {
+  const chips = (key, options, cls = '') => `
+    <div class="chips ${cls}">${Object.entries(options).map(([v, text]) =>
+      `<button type="button" data-k="${key}" data-v="${v}" aria-pressed="${p[key] === v}">${text}</button>`).join('')}</div>`;
+  return `
+    <h2>Where did you park?</h2>${chips('parkType', PARK_TYPES)}
+    <h2>Time limit</h2>${chips('parkLimit', PARK_LIMITS, 'four')}
+    <h2>How easy?</h2>${chips('ease', EASE, 'three')}
+    <label class="field"><span>Note for next time</span>
+      <textarea name="note" rows="2" maxlength="300" placeholder="e.g. bays round the back on Mill St">${esc(p.note)}</textarea></label>`;
+}
+
+function bindParkingEditor(root, id) {
+  root.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-k]');
+    if (!b) return;
+    const on = b.getAttribute('aria-pressed') !== 'true';
+    root.querySelectorAll(`[data-k="${b.dataset.k}"]`).forEach((x) => x.setAttribute('aria-pressed', 'false'));
+    b.setAttribute('aria-pressed', String(on));
+    updatePlace(id, { [b.dataset.k]: on ? b.dataset.v : '' });
+  });
+  const note = $('textarea[name=note]', root);
+  note.addEventListener('change', () => updatePlace(id, { note: note.value.trim() }));
+}
+
+// ---------- Order: offer → pickup → waiting ----------
+
+const EMPTY_ORDER = { step: 'offer', fee: '', miles: '', mins: '', placeId: null, arrivedAt: null };
+
+function setOrder(changes) {
+  store.order = { ...store.order, ...changes };
+}
+
+function stepPills(current) {
+  const steps = ['offer', 'pickup', 'waiting'];
+  const names = ['Offer', 'Pickup', 'Waiting'];
+  const at = steps.indexOf(current);
+  return `<ol class="steps" aria-label="Order steps">${names.map((n, i) => i < at
+    ? `<li class="done">✓ ${n}</li>`
+    : `<li class="${i === at ? 'on' : ''}"${i === at ? ' aria-current="step"' : ''}>${i + 1} ${n}</li>`).join('')}</ol>`;
+}
 
 function renderOrder(view) {
+  const step = store.order.step;
+  if (step === 'pickup') return renderPickup(view);
+  if (step === 'waiting') return renderWaiting(view);
+  return renderOffer(view);
+}
+
+function renderOffer(view) {
+  const o = store.order;
   view.innerHTML = `
-    <div id="order-result" class="order-result" aria-live="polite"></div>
+    ${stepPills('offer')}
+    <div id="order-result" aria-live="polite"></div>
     <form id="of" class="card" novalidate>
       <div class="pair">
         <label class="field"><span>Fee (£)</span>
-          <input name="fee" type="number" inputmode="decimal" step="0.01" min="0" placeholder="e.g. 4.50" value="${esc(orderInput.fee)}"></label>
+          <input name="fee" type="number" inputmode="decimal" step="0.01" min="0" placeholder="e.g. 4.50" value="${esc(o.fee)}"></label>
         <label class="field"><span>Miles</span>
-          <input name="miles" type="number" inputmode="decimal" step="0.1" min="0" placeholder="e.g. 2.5" value="${esc(orderInput.miles)}"></label>
+          <input name="miles" type="number" inputmode="decimal" step="0.1" min="0" placeholder="e.g. 2.5" value="${esc(o.miles)}"></label>
       </div>
+      <div id="offer-place"></div>
       <label class="field"><span>Minutes <small>(optional, if the offer shows a time)</small></span>
-        <input name="mins" type="number" inputmode="numeric" min="0" placeholder="Leave blank to estimate" value="${esc(orderInput.mins)}"></label>
-      <button class="btn" type="button" id="clear">Clear for next order</button>
+        <input name="mins" type="number" inputmode="numeric" min="0" placeholder="Leave blank to estimate" value="${esc(o.mins)}"></label>
+      <button class="btn primary huge" type="button" id="take">Taking it → Pickup</button>
+      <button class="btn link" type="button" id="clear">Clear for next order</button>
     </form>`;
 
   const f = $('#of');
   const update = () => {
-    for (const k in orderInput) orderInput[k] = f[k].value.trim();
+    setOrder({ fee: f.fee.value.trim(), miles: f.miles.value.trim(), mins: f.mins.value.trim() });
+    const { fee: feeText, miles: milesText, mins: minsText, placeId } = store.order;
     const s = store.settings;
-    const fee = parseFloat(orderInput.fee), miles = parseFloat(orderInput.miles), mins = parseFloat(orderInput.mins);
-    const r = orderInput.fee !== '' && orderInput.miles !== '' && fee >= 0 && miles >= 0 ? calcOrder(s, fee, miles, mins) : null;
+    const place = getPlace(placeId);
+    const wait = place ? avgWait(place) : null;
+    const fee = parseFloat(feeText), miles = parseFloat(milesText), mins = parseFloat(minsText);
+    const r = feeText !== '' && milesText !== '' && fee >= 0 && miles >= 0 ? calcOrder(s, fee, miles, mins, wait) : null;
     if (!r) {
       $('#order-result').innerHTML = `<div class="card center muted">Type the fee and miles from the offer.<br>Your £/hr appears here.</div>`;
       return;
     }
     const [icon, word] = { good: ['✓', 'Worth taking'], ok: ['!', 'Borderline'], poor: ['✕', 'Not worth it'] }[r.grade];
+    const stops = wait !== null
+      ? `${Math.round(wait)} min avg wait at ${esc(place.name)} + ${num(s.handoverMins)} min parking & handover`
+      : `${num(s.stopMins)} min stops`;
     $('#order-result').innerHTML = `
       <div class="card order ${r.grade}">
         <div class="big">${money(r.hourly)}<span>/hr profit</span></div>
@@ -510,21 +672,212 @@ function renderOrder(view) {
           <div><b>${money(r.costs)}</b><small>costs</small></div>
           <div><b>${Math.round(r.mins)} min</b><small>${r.estimated ? 'estimated' : 'from offer'}</small></div>
         </div>
-        <p class="muted small center">${r.estimated
-          ? `Time estimated: ${num(miles)} mi at ${num(s.townMph)} mph + ${num(s.stopMins)} min stops. `
-          : ''}Worth taking from ${money(s.goodPerHour)}/hr, borderline from ${money(s.okPerHour)}/hr</p>
+        <p class="muted small center">${r.estimated ? `Time estimated: ${num(miles)} mi at ${num(s.townMph)} mph + ${stops}. ` : ''}Worth taking from ${money(s.goodPerHour)}/hr, borderline from ${money(s.okPerHour)}/hr</p>
       </div>`;
   };
 
-  f.addEventListener('input', update);
-  f.onsubmit = (e) => e.preventDefault();
-  $('#clear').onclick = () => {
-    for (const k in orderInput) { orderInput[k] = ''; f[k].value = ''; }
-    update();
-    f.fee.focus();
+  const showPlace = () => {
+    const slot = $('#offer-place');
+    const place = getPlace(store.order.placeId);
+    if (!place) {
+      placePicker(slot, 'Restaurant <small>(optional)</small>', (p) => { setOrder({ placeId: p.id }); showPlace(); update(); });
+      return;
+    }
+    slot.innerHTML = `
+      <div class="field">
+        <span>Restaurant</span>
+        <div class="picked">
+          <div><b>${placeName(place)}</b><small>${placeMeta(place)}</small></div>
+          ${easeTag(place)}
+        </div>
+        <button type="button" class="btn link" id="change-place">Change restaurant</button>
+      </div>`;
+    $('#change-place').onclick = () => { setOrder({ placeId: null }); showPlace(); update(); $('.picker-input').focus(); };
   };
+
+  f.addEventListener('input', (e) => { if (!e.target.classList.contains('picker-input')) update(); });
+  f.onsubmit = (e) => e.preventDefault();
+  $('#take').onclick = () => { setOrder({ step: 'pickup' }); render(); };
+  $('#clear').onclick = () => { store.order = { ...EMPTY_ORDER }; render(); };
+  showPlace();
   update();
-  if (orderInput.fee === '') f.fee.focus();
+  if (store.order.fee === '') f.fee.focus();
+}
+
+function renderPickup(view) {
+  const place = getPlace(store.order.placeId);
+  view.innerHTML = `
+    ${stepPills('pickup')}
+    <div id="pickup-place"></div>
+    <button class="btn huge${place ? '' : ' primary'}" id="arrived">I've arrived</button>
+    <button class="btn link" id="back">Back to offer</button>`;
+
+  const slot = $('#pickup-place');
+  if (!place) {
+    slot.className = 'card';
+    placePicker(slot, 'Which restaurant?', (p) => { setOrder({ placeId: p.id }); render(); });
+  } else {
+    const wait = avgWait(place);
+    slot.innerHTML = `
+      <div class="card">
+        <div class="place-head"><div><h2 class="place-title">${esc(place.name)}</h2><span class="muted">${esc(place.area) || (place.waits.length ? '' : 'First visit')}</span></div>${easeTag(place)}</div>
+        ${parkingLine(place)}
+        ${place.note ? `<div class="note">📝 ${esc(place.note)}</div>` : ''}
+        ${wait !== null ? `<div class="facts"><div><b>${Math.round(wait)} min</b><small>avg wait</small></div><div><b>${place.waits.length}</b><small>visit${place.waits.length > 1 ? 's' : ''}</small></div></div>` : ''}
+        ${place.spot
+          ? `<a class="btn primary huge icon" id="directions" href="${directionsUrl(place.spot)}" target="_blank" rel="noopener">${PIN_ICON} Directions to parking</a>
+             <button class="btn link" id="spot">Update parking spot to here</button>`
+          : `<p class="muted">No parking saved yet. Once you've parked, save the spot so next time the app can take you straight there.</p>
+             <button class="btn primary huge icon" id="spot">${PIN_ICON} Save parking spot here</button>`}
+      </div>`;
+    $('#spot').onclick = () => saveSpot(place.id, render);
+  }
+  $('#arrived').onclick = () => { setOrder({ step: 'waiting', arrivedAt: new Date().toISOString() }); render(); };
+  $('#back').onclick = () => { setOrder({ step: 'offer' }); render(); };
+}
+
+function renderWaiting(view) {
+  const o = store.order;
+  const place = getPlace(o.placeId);
+  const elapsed = () => {
+    const secs = Math.max(0, Math.floor((Date.now() - new Date(o.arrivedAt)) / 1000));
+    return `${String(Math.floor(secs / 60)).padStart(2, '0')}:${String(secs % 60).padStart(2, '0')}`;
+  };
+  view.innerHTML = `
+    ${stepPills('waiting')}
+    <div class="card center">
+      <p class="muted">Waiting${place ? ` at <b>${esc(place.name)}</b>` : ''}</p>
+      <div class="timer" id="wait-timer" role="timer">${elapsed()}</div>
+      <button class="btn primary huge" id="got">Got the food</button>
+    </div>
+    <div class="card" id="wait-place"></div>
+    <button class="btn link" id="cancel-order">Cancel order (don't save the wait)</button>`;
+
+  timer = setInterval(() => { const t = $('#wait-timer'); if (t) t.textContent = elapsed(); }, 1000);
+
+  const slot = $('#wait-place');
+  if (place) {
+    slot.innerHTML = `<p class="muted small">Optional. Saved straight away for next time.</p>${parkingEditor(place)}`;
+    bindParkingEditor(slot, place.id);
+  } else {
+    placePicker(slot, 'Which restaurant? <small>(to save this wait)</small>', (p) => { setOrder({ placeId: p.id }); render(); });
+  }
+
+  $('#got').onclick = () => {
+    const current = getPlace(store.order.placeId);
+    const mins = (Date.now() - new Date(o.arrivedAt)) / 60000;
+    if (current && mins <= MAX_WAIT_MINS) {
+      updatePlace(current.id, { waits: [...(current.waits || []), { at: new Date().toISOString(), mins: Math.round(mins * 10) / 10 }] });
+      toast(`Saved: ${Math.max(1, Math.round(mins))} min wait at ${current.name}`);
+    } else if (current) {
+      toast(`Over ${MAX_WAIT_MINS} min, so the wait wasn't saved`);
+    } else {
+      toast('Done. Ready for the next order');
+    }
+    store.order = { ...EMPTY_ORDER };
+    render();
+  };
+  $('#cancel-order').onclick = () => {
+    if (!confirm('Cancel this order? The wait time won\'t be saved.')) return;
+    store.order = { ...EMPTY_ORDER };
+    render();
+  };
+}
+
+// ---------- Places tab ----------
+
+let placesSort = 'visits';
+
+function renderPlaces(view) {
+  view.innerHTML = `
+    <div class="card">
+      <label class="field"><span>Search your places</span>
+        <input id="place-search" type="search" autocomplete="off" placeholder="e.g. Nando's"></label>
+      <div class="chips two" role="group" aria-label="Sort">
+        <button type="button" data-sort="visits" aria-pressed="${placesSort === 'visits'}">Most visited</button>
+        <button type="button" data-sort="slowest" aria-pressed="${placesSort === 'slowest'}">Slowest wait</button>
+      </div>
+    </div>
+    <div id="place-list"></div>`;
+
+  const search = $('#place-search');
+  const show = () => {
+    const q = search.value.trim().toLowerCase();
+    const places = store.places
+      .filter((p) => `${p.name} ${p.area}`.toLowerCase().includes(q))
+      .sort(placesSort === 'slowest'
+        ? (a, b) => (avgWait(b) ?? -1) - (avgWait(a) ?? -1)
+        : (a, b) => (b.waits || []).length - (a.waits || []).length || a.name.localeCompare(b.name));
+    const add = q && !store.places.some((p) => p.name.toLowerCase() === q)
+      ? `<button class="btn" id="add-place">+ Add "${esc(search.value.trim())}"</button>` : '';
+    $('#place-list').innerHTML = places.length
+      ? places.map((p) => `
+          <a class="place-row" href="#place/${esc(p.id)}">
+            <span><b>${placeName(p)}</b><small>${placeMeta(p)}${p.spot ? ' · 🅿️ spot saved' : ''}</small></span>${easeTag(p)}
+          </a>`).join('') + add
+      : (q ? add : `<div class="card"><p class="muted">No places yet. They're added when you pick a restaurant on an order, or search above to add one.</p></div>`);
+    const b = $('#add-place');
+    if (b) b.onclick = () => go('#place/' + addPlace(search.value).id);
+  };
+  search.addEventListener('input', show);
+  view.querySelectorAll('[data-sort]').forEach((b) => b.addEventListener('click', () => {
+    placesSort = b.dataset.sort;
+    view.querySelectorAll('[data-sort]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    show();
+  }));
+  show();
+}
+
+function renderPlace(view, id) {
+  const p = getPlace(id);
+  if (!p) return go('#places');
+  const waits = (p.waits || []).slice(-5).reverse();
+  const wait = avgWait(p);
+  view.innerHTML = `
+    <div class="card">
+      <label class="field"><span>Restaurant name</span><input name="name" type="text" value="${esc(p.name)}" maxlength="80"></label>
+      <label class="field"><span>Area or street <small>(helps tell branches apart)</small></span><input name="area" type="text" value="${esc(p.area)}" maxlength="80" placeholder="e.g. High Street"></label>
+    </div>
+    <div class="card">
+      <h2>Parking spot</h2>
+      ${p.spot
+        ? `<p class="muted small">Saved ${dateLabel(p.spot.savedAt)}, to within ${Math.round(p.spot.accuracy)} m.</p>
+           <a class="btn primary icon" href="${directionsUrl(p.spot)}" target="_blank" rel="noopener">${PIN_ICON} Directions to parking</a>
+           <button class="btn" id="spot">Update parking spot to here</button>
+           <button class="btn link" id="clear-spot">Remove saved spot</button>`
+        : `<p class="muted small">No spot saved. Use this when you're parked there.</p>
+           <button class="btn icon" id="spot">${PIN_ICON} Save parking spot here</button>`}
+    </div>
+    <div class="card" id="park-edit">${parkingEditor(p)}</div>
+    <div class="card">
+      <h2>Wait times</h2>
+      ${wait !== null
+        ? `<div class="facts"><div><b>${Math.round(wait)} min</b><small>avg wait (last 10)</small></div><div><b>${p.waits.length}</b><small>visits</small></div></div>
+           ${waits.map((w) => `<div class="line"><span>${dateLabel(w.at)} ${timeLabel(w.at)}</span><b>${Math.max(1, Math.round(w.mins))} min</b></div>`).join('')}`
+        : '<p class="muted small">Timed automatically when you use "I\'ve arrived" and "Got the food" on an order.</p>'}
+    </div>
+    <button class="btn danger-outline" id="delete-place">Delete this place</button>`;
+
+  ['name', 'area'].forEach((k) => {
+    const input = $(`input[name=${k}]`);
+    input.addEventListener('change', () => {
+      const v = input.value.trim();
+      if (k === 'name' && !v) { input.value = p.name; return toast('A place needs a name'); }
+      updatePlace(id, { [k]: v });
+      toast('Saved');
+    });
+  });
+  bindParkingEditor($('#park-edit'), id);
+  $('#spot').onclick = () => saveSpot(id, render);
+  const clearSpot = $('#clear-spot');
+  if (clearSpot) clearSpot.onclick = () => { updatePlace(id, { spot: null }); render(); };
+  $('#delete-place').onclick = () => {
+    if (!confirm(`Delete ${p.name} and its saved parking and wait times?`)) return;
+    store.places = store.places.filter((x) => x.id !== id);
+    if (store.order.placeId === id) setOrder({ placeId: null });
+    toast('Place deleted');
+    location.replace('#places');
+  };
 }
 
 // ---------- History ----------
@@ -595,7 +948,8 @@ function renderSettings(view) {
       ${field('goodPerHour', 'Worth taking from (£ per hour)', '(raise this as you get quicker)')}
       ${field('okPerHour', 'Borderline from (£ per hour)', '(below this: not worth it)')}
       ${field('townMph', 'Average town speed (mph)', '(used to estimate time when an offer only shows miles)', '1')}
-      ${field('stopMins', 'Stop time per order (minutes)', '(restaurant wait, parking and handover)', '1')}
+      ${field('stopMins', 'Stop time per order (minutes)', '(restaurant wait, parking and handover, for restaurants you haven\'t timed yet)', '1')}
+      ${field('handoverMins', 'Parking & handover (minutes)', '(added to a restaurant\'s average wait once you\'ve timed it)', '1')}
       <div id="derived" class="preview"></div>
       <button class="btn primary huge" type="submit">Save settings</button>
       <p class="muted small">Changes save automatically. They only affect new shifts. Saved shifts keep the figures they were recorded with.</p>
@@ -603,7 +957,7 @@ function renderSettings(view) {
 
     <div class="card">
       <h2>Your data</h2>
-      <p class="muted small">Everything is stored only on this phone. Download a backup now and then. If you clear Chrome's data or uninstall, unbacked-up shifts are lost.</p>
+      <p class="muted small">Everything is stored only on this phone. Download a backup now and then. If you clear Chrome's data or uninstall, anything not backed up (shifts and places) is lost.</p>
       <button class="btn" id="csv">Export shifts as spreadsheet (CSV)</button>
       <button class="btn" id="backup">Download backup file</button>
       <button class="btn" id="restore">Restore from backup file</button>
@@ -670,7 +1024,7 @@ function exportCsv() {
 }
 
 function exportBackup() {
-  const data = { app: 'shift-profit', version: 1, exportedAt: new Date().toISOString(), settings: store.settings, shifts: store.shifts, active: store.active };
+  const data = { app: 'shift-profit', version: 1, exportedAt: new Date().toISOString(), settings: store.settings, shifts: store.shifts, active: store.active, places: store.places };
   download(`shift-profit-backup-${today()}.json`, JSON.stringify(data, null, 2), 'application/json');
 }
 
@@ -682,9 +1036,14 @@ async function importBackup(file) {
     const shifts = data.shifts
       .filter((s) => s && s.id && !isNaN(new Date(s.start)) && !isNaN(new Date(s.end)))
       .map((s) => ({ ...s, settings: { ...DEFAULT_SETTINGS, ...s.settings } }));
-    if (!confirm(`Restore ${shifts.length} shifts from this backup? This replaces what's on the phone now.`)) return;
+    const places = (Array.isArray(data.places) ? data.places : [])
+      .filter((p) => p && p.id && p.name)
+      .map((p) => ({ area: '', note: '', parkType: '', parkLimit: '', ease: '', spot: null, ...p, waits: Array.isArray(p.waits) ? p.waits : [] }));
+    const count = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+    if (!confirm(`Restore ${count(shifts.length, 'shift')} and ${count(places.length, 'place')} from this backup? This replaces what's on the phone now.`)) return;
     store.settings = { ...DEFAULT_SETTINGS, ...data.settings };
     store.shifts = shifts;
+    store.places = places;
     store.active = data.active || null;
     toast('Backup restored');
     render();

@@ -41,11 +41,13 @@ function calcShift(shift) {
 }
 
 // Estimate for a single order offer. If the offer doesn't give a time, it's
-// estimated from the miles at town speed plus time stopped at each end.
-function calcOrder(s, fee, miles, minutes) {
+// estimated from the miles at town speed plus time stopped: the restaurant's
+// own average wait when known, otherwise the general stop time.
+function calcOrder(s, fee, miles, minutes, avgWait = null) {
   const estimated = !(minutes > 0);
   const mph = Number(s.townMph) || 0;
-  const mins = estimated ? (mph > 0 ? (miles / mph) * 60 : 0) + (Number(s.stopMins) || 0) : minutes;
+  const stops = avgWait !== null ? avgWait + (Number(s.handoverMins) || 0) : Number(s.stopMins) || 0;
+  const mins = estimated ? (mph > 0 ? (miles / mph) * 60 : 0) + stops : minutes;
   if (!(mins > 0)) return null;
   const costs = miles * (fuelCostPerMile(s) + (Number(s.maintPence) || 0) / 100) + (mins / 60) * insurancePerHour(s);
   const profit = fee - costs;
