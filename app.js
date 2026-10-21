@@ -631,6 +631,11 @@ async function importBackup(file) {
 render();
 
 if ('serviceWorker' in navigator) {
+  // When an update takes over, reload to show it, unless a form is half filled in.
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (hadController && !/^#(end|add|edit)/.test(location.hash)) location.reload();
+  });
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 // Ask Chrome not to clear our data when the phone is low on space.
