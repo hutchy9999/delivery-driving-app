@@ -9,7 +9,6 @@ const DEFAULT_SETTINGS = {
   mpg: 45,              // UK MPG
   maintPence: 5,        // pence per mile (tyres, servicing, wear)
   insurancePerHour: 1.16, // £ per hour on shift (pay-as-you-go, e.g. Zego)
-  taxPct: 20,           // % of profit set aside for tax
 };
 
 function load(key, fallback) {
@@ -434,8 +433,8 @@ function renderShift(view, id) {
       <p class="muted center">Deliveroo showed ${money(r.grossPerHour)}/hr before costs</p>
       <div class="row3">
         <div><b>${money(r.profit)}</b><small>profit</small></div>
-        <div><b>${money(r.takeHome)}</b><small>after tax reserve</small></div>
-        <div><b>${money(r.takeHomePerHour)}</b><small>take-home/hr</small></div>
+        <div><b>${money(r.costs)}</b><small>costs</small></div>
+        <div><b>${money(r.profitPerMile)}</b><small>profit/mile</small></div>
       </div>
     </div>
     <div class="card">
@@ -443,14 +442,11 @@ function renderShift(view, id) {
       ${line(`Fuel (${num(r.litres)} L)`, '−' + money(r.fuel))}
       ${line('Maintenance', '−' + money(r.maintenance))}
       ${line(`Insurance (${money(insurancePerHour(s))}/hr)`, '−' + money(r.insurance))}
-      ${line('Profit before tax', money(r.profit), 'total')}
-      ${line(`Tax reserve (${num(s.taxPct)}%)`, '−' + money(r.taxReserve))}
-      ${line('Take-home', money(r.takeHome), 'total')}
+      ${line('Profit', money(r.profit), 'total')}
     </div>
     <div class="card">
       ${line('Time worked', duration(r.hours))}
       ${line('Miles', num(r.miles))}
-      ${line('Profit per mile', money(r.profitPerMile))}
       <p class="muted small">Worked out with petrol at ${money(s.fuelPrice)}/L and ${num(s.mpg)} MPG.</p>
     </div>
     <div class="actions">
@@ -533,8 +529,6 @@ function renderSettings(view) {
       ${field('maintPence', 'Maintenance (pence per mile)', '(tyres, servicing, wear. 5–10p is typical)', '0.1')}
       <h2>Insurance</h2>
       ${field('insurancePerHour', 'Insurance (£ per hour on shift)', '(pay-as-you-go, e.g. Zego)')}
-      <h2>Tax</h2>
-      ${field('taxPct', 'Tax reserve (% of profit)', '(money to put aside for your tax bill)', '1')}
       <div id="derived" class="preview"></div>
       <button class="btn primary huge" type="submit">Save settings</button>
       <p class="muted small">Changes save automatically. They only affect new shifts. Saved shifts keep the figures they were recorded with.</p>
@@ -596,14 +590,14 @@ function exportCsv() {
   if (!shifts.length) return toast('No shifts to export yet');
   const cols = ['date', 'start', 'end', 'hours', 'start_odometer', 'end_odometer', 'miles', 'earnings',
     'fuel_litres', 'fuel_cost', 'maintenance', 'insurance', 'total_costs', 'profit', 'profit_per_hour',
-    'tax_reserve', 'take_home', 'petrol_price', 'mpg', 'note'];
+    'petrol_price', 'mpg', 'note'];
   const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const f2 = (n) => n.toFixed(2);
   const rows = [...shifts].reverse().map((s) => {
     const r = calcShift(s);
     return [toLocalInput(s.start).slice(0, 10), timeLabel(s.start), timeLabel(s.end), f2(r.hours), s.startOdo, s.endOdo,
       r.miles, f2(r.earnings), f2(r.litres), f2(r.fuel), f2(r.maintenance), f2(r.insurance), f2(r.costs), f2(r.profit),
-      f2(r.profitPerHour), f2(r.taxReserve), f2(r.takeHome), s.settings.fuelPrice, s.settings.mpg, s.note].map(q).join(',');
+      f2(r.profitPerHour), s.settings.fuelPrice, s.settings.mpg, s.note].map(q).join(',');
   });
   download(`shifts-${today()}.csv`, [cols.join(','), ...rows].join('\n'), 'text/csv');
 }

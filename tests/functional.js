@@ -31,6 +31,7 @@ const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL:'
   await p.fill('[name=fuelPrice]', '1.70'); await p.fill('[name=mpg]', '32');
   ok((await p.textContent('#derived')).includes('£0.24'), 'derived fuel/mile updates live');
   ok(await p.inputValue('[name=insurancePerHour]') === '1.16', 'insurance defaults to £1.16/hr');
+  ok(!(await p.$('[name=taxPct]')) && !/tax/i.test(await p.textContent('main')), 'no tax in settings');
   ok(!(await p.$('[name=hoursPerWeek]')) && !(await p.$('[name=otherMonthly]')), 'hours/week and monthly boxes removed');
   await p.fill('[name=insurancePerHour]', '1.16');
   await p.fill('[name=maintPence]', '-5');
@@ -94,6 +95,7 @@ const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL:'
   const detail = await p.textContent('main');
   ok(detail.includes('£7.25') && detail.includes('test <b>note</b>'), 'detail shows fuel £7.25 and escaped note');
   ok(detail.includes('Insurance (£1.16/hr)') && detail.includes('−£5.80'), '5h shift charges £5.80 insurance');
+  ok(!/tax|take-home/i.test(detail), 'no tax on shift breakdown');
 
   // 6. Android back from detail should not reopen the end form
   await p.goBack(); ok(!['#end'].includes(await hash()), 'back after save does not return to form: ' + await hash());

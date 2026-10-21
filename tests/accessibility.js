@@ -11,7 +11,7 @@ const MIN = 48;
     const p = await ctx.newPage();
     p.on('dialog', d => d.accept());
     await p.goto('http://localhost:8765/');
-    const shift = { id: 'abc', start: '2026-10-20T10:00:00Z', end: '2026-10-20T15:00:00Z', startOdo: '100', endOdo: '130', miles: 30, earnings: 75, note: 'rainy', settings: { fuelPrice: 1.7, mpg: 32, maintPence: 5, insurancePerHour: 1.16, taxPct: 20 } };
+    const shift = { id: 'abc', start: '2026-10-20T10:00:00Z', end: '2026-10-20T15:00:00Z', startOdo: '100', endOdo: '130', miles: 30, earnings: 75, note: 'rainy', settings: { fuelPrice: 1.7, mpg: 32, maintPence: 5, insurancePerHour: 1.16 } };
     const screens = [
       ['home-empty', async () => { await p.evaluate(() => localStorage.clear()); await p.goto('http://localhost:8765/#home'); }],
       ['settings', async () => p.goto('http://localhost:8765/#settings')],

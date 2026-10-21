@@ -31,23 +31,19 @@ function calcShift(shift) {
   const insurance = hours * insurancePerHour(s);
   const costs = fuel + maintenance + insurance;
   const profit = earnings - costs;
-  const taxReserve = Math.max(0, profit) * ((Number(s.taxPct) || 0) / 100);
-  const takeHome = profit - taxReserve;
 
   return {
-    hours, miles, earnings, litres, fuel, maintenance, insurance, costs, profit, taxReserve, takeHome,
+    hours, miles, earnings, litres, fuel, maintenance, insurance, costs, profit,
     grossPerHour: hours > 0 ? earnings / hours : 0,
     profitPerHour: hours > 0 ? profit / hours : 0,
-    takeHomePerHour: hours > 0 ? takeHome / hours : 0,
     profitPerMile: miles > 0 ? profit / miles : 0,
   };
 }
 
 function sumResults(results) {
-  const t = { hours: 0, miles: 0, earnings: 0, fuel: 0, maintenance: 0, insurance: 0, costs: 0, profit: 0, taxReserve: 0, takeHome: 0 };
+  const t = { hours: 0, miles: 0, earnings: 0, fuel: 0, maintenance: 0, insurance: 0, costs: 0, profit: 0 };
   for (const r of results) for (const k in t) t[k] += r[k];
   t.profitPerHour = t.hours > 0 ? t.profit / t.hours : 0;
-  t.takeHomePerHour = t.hours > 0 ? t.takeHome / t.hours : 0;
   return t;
 }
 
