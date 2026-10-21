@@ -8,10 +8,11 @@ A personal web app for delivery driving. It shows your **real profit per hour** 
 ## Using it
 
 1. **Settings:** enter your petrol price (£/L), UK MPG, insurance (£ per hour on shift, e.g. Zego pay-as-you-go), and your tax reserve %.
-2. **Start shift:** optionally type in your odometer reading, then tap **Start shift**.
-3. **End shift:** enter your total earnings from Deliveroo and your odometer reading. You get profit per hour, costs and take-home.
-4. **History:** shifts are grouped by week. Tap a shift to see the full breakdown, or to edit or delete it.
-5. **Backups:** in Settings, use **Download backup file** now and then. Clearing Chrome's data deletes your shifts.
+2. **Daily profit graph:** at the top of the Shift tab. It shows profit before tax for each of the last 14 days, with average profit, fuel and hours per day worked underneath. Tap or drag across it to see a day.
+3. **Start shift:** optionally type in your odometer reading, then tap **Start shift**.
+4. **End shift:** enter your total earnings from Deliveroo and your odometer reading. You get profit per hour, costs and take-home.
+5. **History:** shifts are grouped by week. Tap a shift to see the full breakdown, or to edit or delete it.
+6. **Backups:** in Settings, use **Download backup file** now and then. Clearing Chrome's data deletes your shifts.
 
 ## How it calculates
 

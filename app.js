@@ -98,6 +98,7 @@ function go(hash) {
 
 function render() {
   clearInterval(timer);
+  window.scrollTo(0, 0);
   const [route, id] = location.hash.slice(1).split('/');
   const view = $('#view');
   const tab = { history: 'history', shift: 'history', edit: 'history', add: 'history', settings: 'settings' }[route] || 'home';
@@ -120,6 +121,119 @@ function render() {
 
 window.addEventListener('hashchange', render);
 document.querySelectorAll('.tab').forEach((b) => b.addEventListener('click', () => go('#' + b.dataset.tab)));
+
+// ---------- Daily profit chart (last 14 days) ----------
+
+const CHART_DAYS = 14;
+// SVG size and margins (left margin fits the £ labels).
+const CW = 340, CH = 180, CL = 44, CR = 20, CT = 10, CB = 26;
+const chartX = (i) => CL + (i * (CW - CL - CR)) / (CHART_DAYS - 1);
+
+// One entry per calendar day, oldest first, ending today.
+function dailyTotals(shifts) {
+  const days = [];
+  const byKey = new Map();
+  for (let i = CHART_DAYS - 1; i >= 0; i--) {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - i);
+    const day = { date: d, key: toLocalInput(d).slice(0, 10), worked: false, profit: 0, fuel: 0, hours: 0 };
+    days.push(day);
+    byKey.set(day.key, day);
+  }
+  for (const s of shifts) {
+    const day = byKey.get(toLocalInput(s.start).slice(0, 10));
+    if (!day) continue;
+    const r = calcShift(s);
+    day.worked = true;
+    day.profit += r.profit;
+    day.fuel += r.fuel;
+    day.hours += r.hours;
+  }
+  return days;
+}
+
+// A tick step giving at most 4 gridlines.
+function niceStep(range) {
+  for (const step of [5, 10, 20, 25, 50, 100, 200, 250, 500, 1000]) if (range / step <= 4) return step;
+  return 2500;
+}
+
+const shortDate = (d) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+
+function chartCard(shifts) {
+  const days = dailyTotals(shifts);
+  const worked = days.filter((d) => d.worked);
+  const W = CW, H = CH, L = CL, R = CR, T = CT, B = CB;
+  const values = days.map((d) => d.profit);
+  // An empty graph shows £0–£100 so it looks like a normal week.
+  const step = worked.length ? niceStep(Math.max(...values, 0) - Math.min(...values, 0) || 1) : 25;
+  const yMax = worked.length ? Math.max(step, Math.ceil(Math.max(...values, 0) / step) * step) : 100;
+  const yMin = Math.floor(Math.min(...values, 0) / step) * step;
+  const x = chartX;
+  const y = (v) => T + ((yMax - v) * (H - T - B)) / (yMax - yMin);
+
+  let grid = '';
+  for (let v = yMin; v <= yMax; v += step) {
+    grid += `<line class="${v === 0 ? 'zero' : 'grid'}" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/>
+      <text class="axis" x="${L - 6}" y="${y(v) + 4}" text-anchor="end">£${v}</text>`;
+  }
+  // Label every other day, always including today on the right.
+  const xLabels = days.map((d, i) => ((CHART_DAYS - 1 - i) % 2 === 0
+    ? `<text class="axis" x="${x(i)}" y="${H - 8}" text-anchor="middle">${shortDate(d.date)}</text>` : '')).join('');
+  const line = worked.length
+    ? `<polyline class="line" points="${days.map((d, i) => `${x(i)},${y(d.profit)}`).join(' ')}"/>` +
+      days.map((d, i) => (d.worked ? `<circle class="dot" cx="${x(i)}" cy="${y(d.profit)}" r="4"/>` : '')).join('')
+    : `<text class="axis" x="${(L + W - R) / 2}" y="${T + (H - T - B) * 0.375 + 4}" text-anchor="middle">No shifts in the last 2 weeks</text>`;
+
+  const avg = (k) => worked.reduce((a, d) => a + d[k], 0) / worked.length;
+  const stat = (value, label) => `<div><b>${worked.length ? value : '–'}</b><small>${label}</small></div>`;
+  const total = worked.reduce((a, d) => a + d.profit, 0);
+  const summary = worked.length
+    ? `Daily profit for the last 2 weeks. ${worked.length} days worked, ${money(total)} profit in total.`
+    : 'Daily profit for the last 2 weeks. No shifts yet.';
+
+  return `
+    <div class="card chart" id="chart">
+      <h2>Daily profit before tax · last 2 weeks</h2>
+      <p class="muted small chart-info" id="chart-info" aria-live="polite">${worked.length ? 'Tap the graph to see a day' : '&nbsp;'}</p>
+      <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${summary}">
+        ${grid}${xLabels}
+        <line class="cross" id="cross" x1="0" x2="0" y1="${T}" y2="${H - B}" visibility="hidden"/>
+        ${line}
+      </svg>
+      <div class="row3">
+        ${stat(money(avg('profit')), 'avg profit / day')}
+        ${stat(money(avg('fuel')), 'avg fuel / day')}
+        ${stat(duration(avg('hours')), 'avg hours / day')}
+      </div>
+      <p class="muted small center">Averages are per day worked</p>
+    </div>`;
+}
+
+// Tap or drag across the graph to read off a day.
+function bindChart(shifts) {
+  const svg = $('#chart svg');
+  if (!svg || !shifts.length) return;
+  const days = dailyTotals(shifts);
+  if (!days.some((d) => d.worked)) return;
+  const pick = (e) => {
+    const box = svg.getBoundingClientRect();
+    const sx = ((e.clientX - box.left) / box.width) * CW;
+    const i = Math.max(0, Math.min(CHART_DAYS - 1, Math.round(((sx - CL) / (CW - CL - CR)) * (CHART_DAYS - 1))));
+    const d = days[i];
+    const cx = chartX(i);
+    const cross = $('#cross');
+    cross.setAttribute('x1', cx);
+    cross.setAttribute('x2', cx);
+    cross.setAttribute('visibility', 'visible');
+    $('#chart-info').innerHTML = `<b>${dateLabel(d.date)}</b> · ` + (d.worked
+      ? `${money(d.profit)} profit · ${money(d.fuel)} fuel · ${duration(d.hours)}`
+      : 'no shift');
+  };
+  svg.addEventListener('pointerdown', pick);
+  svg.addEventListener('pointermove', (e) => { if (e.buttons || e.pointerType === 'mouse') pick(e); });
+}
 
 // ---------- Home ----------
 
@@ -149,6 +263,7 @@ function renderHome(view) {
   if (active) {
     view.innerHTML = `
       ${settingsNote}
+      ${chartCard(shifts)}
       <div class="card active-shift">
         <p class="muted">On shift since ${timeLabel(active.start)}${active.startOdo ? ` · odometer ${esc(active.startOdo)}` : ''}</p>
         <div class="clock" id="clock">${duration((Date.now() - new Date(active.start)) / 3600000)}</div>
@@ -159,6 +274,7 @@ function renderHome(view) {
       const c = $('#clock');
       if (c) c.textContent = duration((Date.now() - new Date(active.start)) / 3600000);
     }, 15000);
+    bindChart(shifts);
     $('#end').onclick = () => go('#end');
     $('#cancel').onclick = () => {
       if (confirm('Cancel this shift? Nothing will be saved.')) {
@@ -178,6 +294,7 @@ function renderHome(view) {
 
   view.innerHTML = `
     ${settingsNote}
+    ${chartCard(shifts)}
     <div class="card">
       <label class="field">
         <span>Odometer now <small>(optional)</small></span>
@@ -189,6 +306,7 @@ function renderHome(view) {
     ${summaryCard('This week', weeks)}
     <a class="btn link" href="#add">Forgot to start? Add a past shift</a>`;
 
+  bindChart(shifts);
   $('#start').onclick = () => {
     store.active = { start: new Date().toISOString(), startOdo: $('#odo').value.trim() };
     toast('Shift started. Drive safe!');

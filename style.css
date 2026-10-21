@@ -168,3 +168,15 @@ a.btn.link { text-decoration: underline; }
   text-align: center;
   pointer-events: none;
 }
+
+/* Daily profit chart */
+.chart svg { display: block; width: 100%; height: auto; touch-action: pan-y; user-select: none; }
+.chart .grid { stroke: var(--border); stroke-width: 1; }
+.chart .zero { stroke: var(--muted); stroke-width: 1; }
+.chart .axis { fill: var(--muted); font-size: 11px; }
+.chart .line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart .dot { fill: var(--accent); stroke: var(--card); stroke-width: 2; }
+.chart .cross { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
+.chart-info { margin: 0 0 4px; min-height: 1.4em; }
+.chart .row3 { margin-top: 4px; }
+.chart > p:last-child { margin: 8px 0 0; }
