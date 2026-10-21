@@ -9,7 +9,8 @@ const DEFAULT_SETTINGS = {
   mpg: 45,              // UK MPG
   maintPence: 5,        // pence per mile (tyres, servicing, wear)
   insurancePerHour: 1.16, // £ per hour on shift (pay-as-you-go, e.g. Zego)
-  targetPerHour: 15,    // order calculator: £/hr an order should beat
+  goodPerHour: 12,      // order calculator: £/hr from which an order is worth taking
+  okPerHour: 10,        // order calculator: £/hr from which an order is borderline
   townMph: 15,          // order calculator: average speed to estimate minutes
   stopMins: 8,          // order calculator: restaurant wait, parking, handover
 };
@@ -511,7 +512,7 @@ function renderOrder(view) {
         </div>
         <p class="muted small center">${r.estimated
           ? `Time estimated: ${num(miles)} mi at ${num(s.townMph)} mph + ${num(s.stopMins)} min stops. `
-          : ''}Target: ${money(s.targetPerHour)}/hr</p>
+          : ''}Worth taking from ${money(s.goodPerHour)}/hr, borderline from ${money(s.okPerHour)}/hr</p>
       </div>`;
   };
 
@@ -591,7 +592,8 @@ function renderSettings(view) {
       <h2>Insurance</h2>
       ${field('insurancePerHour', 'Insurance (£ per hour on shift)', '(pay-as-you-go, e.g. Zego)')}
       <h2>Order calculator</h2>
-      ${field('targetPerHour', 'Target profit per order (£ per hour)', '(aim higher than your shift target, to cover waiting between orders)')}
+      ${field('goodPerHour', 'Worth taking from (£ per hour)', '(raise this as you get quicker)')}
+      ${field('okPerHour', 'Borderline from (£ per hour)', '(below this: not worth it)')}
       ${field('townMph', 'Average town speed (mph)', '(used to estimate time when an offer only shows miles)', '1')}
       ${field('stopMins', 'Stop time per order (minutes)', '(restaurant wait, parking and handover)', '1')}
       <div id="derived" class="preview"></div>

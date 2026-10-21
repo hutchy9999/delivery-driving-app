@@ -50,8 +50,7 @@ function calcOrder(s, fee, miles, minutes) {
   const costs = miles * (fuelCostPerMile(s) + (Number(s.maintPence) || 0) / 100) + (mins / 60) * insurancePerHour(s);
   const profit = fee - costs;
   const hourly = (profit / mins) * 60;
-  const target = Number(s.targetPerHour) || 0;
-  const grade = hourly >= target ? 'good' : hourly >= target * 0.75 ? 'ok' : 'poor';
+  const grade = hourly >= (Number(s.goodPerHour) || 0) ? 'good' : hourly >= (Number(s.okPerHour) || 0) ? 'ok' : 'poor';
   return { mins, estimated, costs, profit, hourly, grade };
 }
 

@@ -177,11 +177,17 @@ const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL:'
   ok((await p.textContent('#order-result')).includes('Type the fee'), 'needs miles too');
   await p.fill('[name=miles]', '1.5');
   let res = await p.textContent('#order-result');
-  ok(res.includes('£14.11/hr') && res.includes('Borderline') && res.includes('14 min') && res.includes('estimated'), 'order £4 / 1.5mi: ' + res.replace(/\s+/g, ' '));
+  ok(res.includes('£14.11/hr') && res.includes('Worth taking') && res.includes('14 min') && res.includes('estimated') && res.includes('from £12.00/hr, borderline from £10.00/hr'), 'order £4 / 1.5mi: ' + res.replace(/\s+/g, ' '));
   await p.fill('[name=mins]', '10');
   res = await p.textContent('#order-result');
   ok(res.includes('Worth taking') && res.includes('from offer') && !res.includes('Time estimated'), 'minutes from offer used: ' + res.replace(/\s+/g, ' '));
-  await p.fill('[name=mins]', ''); await p.fill('[name=fee]', '5'); await p.fill('[name=miles]', '7');
+  await p.fill('[name=mins]', ''); await p.fill('[name=fee]', '5'); await p.fill('[name=miles]', '3');
+  res = await p.textContent('#order-result');
+  ok(res.includes('£11.22/hr') && res.includes('Borderline'), '£11.22/hr is borderline (£10–£11.99)');
+  await p.fill('[name=fee]', '4.50'); await p.fill('[name=miles]', '3');
+  res = await p.textContent('#order-result');
+  ok(res.includes('£9.72/hr') && res.includes('Not worth it'), 'under £10/hr is not worth it: ' + res.replace(/\s+/g, ' '));
+  await p.fill('[name=fee]', '5'); await p.fill('[name=miles]', '7');
   ok((await p.textContent('#order-result')).includes('Not worth it'), 'long cheap order is poor');
   await tap('[data-tab=home]'); await tap('[data-tab=order]');
   ok(await p.inputValue('[name=fee]') === '5' && await p.inputValue('[name=miles]') === '7', 'order numbers kept when switching tabs');
@@ -190,13 +196,13 @@ const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL:'
   ok(await p.evaluate(() => document.activeElement.name) === 'fee', 'clear refocuses fee');
   ok(!(await p.textContent('main')).toLowerCase().includes('cheat'), 'no cheat sheet');
   await tap('[data-tab=settings]');
-  await p.fill('[name=targetPerHour]', '10'); await p.fill('[name=stopMins]', '5');
+  await p.fill('[name=goodPerHour]', '20'); await p.fill('[name=okPerHour]', '15'); await p.fill('[name=stopMins]', '5');
   await tap('[data-tab=order]');
   await p.fill('[name=fee]', '4'); await p.fill('[name=miles]', '1.5');
   res = await p.textContent('#order-result');
-  ok(res.includes('Worth taking') && res.includes('11 min') && res.includes('Target: £10.00/hr'), 'order settings take effect: ' + res.replace(/\s+/g, ' '));
+  ok(res.includes('£18.27/hr') && res.includes('Borderline') && res.includes('11 min') && res.includes('from £20.00/hr, borderline from £15.00/hr'), 'order settings take effect: ' + res.replace(/\s+/g, ' '));
   await tap('[data-tab=settings]');
-  await p.fill('[name=targetPerHour]', '15'); await p.fill('[name=stopMins]', '8');
+  await p.fill('[name=goodPerHour]', '12'); await p.fill('[name=okPerHour]', '10'); await p.fill('[name=stopMins]', '8');
   await tap('[data-tab=home]');
 
   // 13. narrow phone: no sideways scrolling on any screen
