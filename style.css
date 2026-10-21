@@ -136,8 +136,8 @@ a.btn.link { text-decoration: underline; }
 /* Numbers */
 .big { font-size: 40px; font-weight: 700; text-align: center; letter-spacing: -.02em; }
 .big span { font-size: 16px; font-weight: 500; color: var(--muted); margin-left: 4px; }
-.row3 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; text-align: center; margin-top: 12px; }
-.row3 b { display: block; font-size: 17px; }
+.row3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)); gap: 8px; text-align: center; margin-top: 12px; }
+.row3 b { display: block; font-size: 17px; white-space: nowrap; }
 .row3 small { font-size: 13px; }
 .summary h2 { margin-bottom: 4px; }
 
@@ -194,7 +194,7 @@ a.btn.link { text-decoration: underline; }
 .chart svg { display: block; width: 100%; height: auto; touch-action: pan-y; user-select: none; }
 .chart .grid { stroke: var(--border); stroke-width: 1; }
 .chart .zero { stroke: var(--muted); stroke-width: 1; }
-.chart .axis { fill: var(--muted); font-size: 11px; }
+.chart .axis { fill: var(--muted); font-size: 12px; }
 .chart .line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
 .chart .dot { fill: var(--accent); stroke: var(--card); stroke-width: 2; }
 .chart .cross { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
@@ -226,14 +226,13 @@ a.btn.link { text-decoration: underline; }
 .btn-icon { width: 24px; height: 24px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
 /* Place search suggestions */
-.sugg { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; margin: -6px 0 14px; }
+.sugg { display: grid; gap: 2px; background: var(--border); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; margin: -6px 0 14px; }
 .sugg:empty { display: none; }
 .sugg button {
   display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%; min-height: 56px;
   padding: 12px 14px; font: inherit; text-align: left; background: var(--card); color: var(--text);
-  border: none; border-bottom: 1px solid var(--border); cursor: pointer; touch-action: manipulation;
+  border: none; cursor: pointer; touch-action: manipulation;
 }
-.sugg button:last-child { border-bottom: none; }
 .sugg small, .picked small, .place-row small { display: block; }
 .accent-text { color: var(--accent-on-soft); font-weight: 600; }
 .picked { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 12px 14px; border-radius: 12px; background: var(--bg); border: 1px solid var(--border); }
@@ -265,8 +264,9 @@ a.btn.link { text-decoration: underline; }
 /* Choice chips */
 .chips { display: grid; grid-template-columns: 1fr; gap: 8px; margin: 0 0 16px; }
 .chips.two { grid-template-columns: 1fr 1fr; margin: 0; }
-.chips.three { grid-template-columns: repeat(3, 1fr); }
-.chips.four { grid-template-columns: repeat(4, 1fr); }
+/* Wrap onto another row rather than shrink below a comfortable width. */
+.chips.three { grid-template-columns: repeat(auto-fit, minmax(72px, 1fr)); }
+.chips.four { grid-template-columns: repeat(auto-fit, minmax(56px, 1fr)); }
 .chips button {
   font: inherit; font-weight: 600; min-height: 52px; padding: 6px; border-radius: 12px; cursor: pointer;
   border: 2px solid var(--border); background: var(--card); color: var(--text); touch-action: manipulation;

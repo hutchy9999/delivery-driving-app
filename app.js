@@ -140,8 +140,12 @@ $('#gear').addEventListener('click', () => go('#settings'));
 // ---------- Daily profit chart (last 14 days) ----------
 
 const CHART_DAYS = 14;
-// SVG size and margins (left margin fits the £ labels).
-const CW = 340, CH = 180, CL = 44, CR = 20, CT = 10, CB = 26;
+// SVG height and margins (left margin fits the £ labels, right fits half a date).
+const CH = 190, CL = 48, CR = 22, CT = 10, CB = 28;
+// The SVG is drawn at the card's real width, so its 12px labels stay 12px on any
+// screen or text size. Card content = page width − page padding − card padding.
+let CW = 340;
+const chartWidth = () => Math.max(200, Math.round(Math.min(window.innerWidth, 560) - 66));
 const chartX = (i) => CL + (i * (CW - CL - CR)) / (CHART_DAYS - 1);
 
 // One entry per calendar day, oldest first, ending today.
@@ -179,6 +183,7 @@ const shortDate = (d) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 
 function chartCard(shifts) {
   const days = dailyTotals(shifts);
   const worked = days.filter((d) => d.worked);
+  CW = chartWidth();
   const W = CW, H = CH, L = CL, R = CR, T = CT, B = CB;
   const values = days.map((d) => d.profit);
   // An empty graph shows £0–£100 so it looks like a normal week.
@@ -193,8 +198,11 @@ function chartCard(shifts) {
     grid += `<line class="${v === 0 ? 'zero' : 'grid'}" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/>
       <text class="axis" x="${L - 6}" y="${y(v) + 4}" text-anchor="end">£${v}</text>`;
   }
-  // Label every other day, always including today on the right.
-  const xLabels = days.map((d, i) => ((CHART_DAYS - 1 - i) % 2 === 0
+  // Label every 2nd day where there's room (every 3rd/4th on narrow screens),
+  // always including today on the right.
+  const gap = (W - L - R) / (CHART_DAYS - 1);
+  const every = [2, 3, 4, 7].find((n) => n * gap >= 46) || 7;
+  const xLabels = days.map((d, i) => ((CHART_DAYS - 1 - i) % every === 0
     ? `<text class="axis" x="${x(i)}" y="${H - 8}" text-anchor="middle">${shortDate(d.date)}</text>` : '')).join('');
   const line = worked.length
     ? `<polyline class="line" points="${days.map((d, i) => `${x(i)},${y(d.profit)}`).join(' ')}"/>` +

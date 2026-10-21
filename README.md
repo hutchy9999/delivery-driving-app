@@ -33,7 +33,7 @@ Plain HTML, CSS and JavaScript, with no build step. `calc.js` holds the maths, `
 
 ## Tests
 
-`tests/` has two browser checks that run on a phone-sized screen. `functional.js` taps every button and fills every input, including mistakes on purpose. `accessibility.js` checks every screen in light and dark mode for contrast, labels and tap targets of at least 48px.
+`tests/` has three browser checks. `functional.js` taps every button and fills every input, including mistakes on purpose. `accessibility.js` checks every screen in light and dark mode for contrast and labels. `mobile.js` sweeps every screen and state in light and dark at three widths (Pixel 7, a small 320px phone, and large text): tap targets of at least 48px that don't touch, inputs with 16px text, no text under 13px, nothing clipped, nothing scrolling sideways, nothing stuck behind the tab bar, plus a full accessibility scan.
 
 ```
 cd tests && npm install

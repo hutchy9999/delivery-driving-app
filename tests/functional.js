@@ -20,7 +20,12 @@ const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL:'
   // 0. chart shows from the start, empty
   ok(await p.isVisible('#chart svg'), 'chart visible with no data');
   ok((await p.textContent('#chart')).includes('No shifts in the last 2 weeks'), 'empty chart message');
-  ok((await p.$$('#chart .axis')).length === 13, 'empty chart has 5 £ labels, 7 date labels and a message');
+  const axis = await p.$$eval('#chart .axis', (ts) => ts.map((t) => ({ text: t.textContent, box: t.getBoundingClientRect() })));
+  const dates = axis.filter((t) => /\d+ \w{3}$/.test(t.text));
+  const todayLabel = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  ok(axis.filter((t) => t.text.startsWith('£')).length === 5, 'empty chart has 5 £ labels');
+  ok(dates.length >= 4 && dates[dates.length - 1].text === todayLabel, 'date labels end with today: ' + dates.map((d) => d.text).join(', '));
+  ok(dates.every((d, i) => i === 0 || d.box.left >= dates[i - 1].box.right + 4), 'date labels do not overlap');
   ok(await p.locator('#chart .dot').count() === 0, 'no points when empty');
   // 1. first-run banner
   ok(await p.isVisible('.notice'), 'first-run banner visible');
