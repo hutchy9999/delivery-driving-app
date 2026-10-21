@@ -103,7 +103,11 @@ function render() {
   const [route, id] = location.hash.slice(1).split('/');
   const view = $('#view');
   const tab = { history: 'history', shift: 'history', edit: 'history', add: 'history', settings: 'settings' }[route] || 'home';
-  document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
+  document.querySelectorAll('.tab').forEach((b) => {
+    b.classList.toggle('active', b.dataset.tab === tab);
+    if (b.dataset.tab === tab) b.setAttribute('aria-current', 'page');
+    else b.removeAttribute('aria-current');
+  });
 
   switch (route) {
     case 'end': return renderShiftForm(view, 'end');
@@ -123,10 +127,10 @@ document.querySelectorAll('.tab').forEach((b) => b.addEventListener('click', () 
 
 function summaryCard(label, shifts) {
   const t = sumResults(shifts.map(calcShift));
-  if (!shifts.length) return `<div class="card summary"><h3>${label}</h3><p class="muted">No shifts yet</p></div>`;
+  if (!shifts.length) return `<div class="card summary"><h2>${label}</h2><p class="muted">No shifts yet</p></div>`;
   return `
     <div class="card summary">
-      <h3>${label}</h3>
+      <h2>${label}</h2>
       <div class="big ${profitClass(t.profitPerHour)}">${money(t.profitPerHour)}<span>/hr profit</span></div>
       <div class="row3">
         <div><b>${money(t.profit)}</b><small>profit</small></div>
@@ -185,7 +189,7 @@ function renderHome(view) {
     </div>
     ${summaryCard('Today', todays)}
     ${summaryCard('This week', weeks)}
-    <p class="center"><a href="#add">Forgot to start? Add a past shift</a></p>`;
+    <a class="btn link" href="#add">Forgot to start? Add a past shift</a>`;
 
   $('#start').onclick = () => {
     store.active = { start: new Date().toISOString(), startOdo: $('#odo').value.trim() };
@@ -407,23 +411,23 @@ function renderSettings(view) {
 
   view.innerHTML = `
     <form id="sf" class="card" novalidate>
-      <h3>Car & fuel</h3>
+      <h2>Car & fuel</h2>
       ${field('fuelPrice', 'Petrol price (£ per litre)', '', '0.001')}
       ${field('mpg', 'Average MPG', '(UK MPG, as shown on your dashboard)', '0.1')}
       ${field('maintPence', 'Maintenance (pence per mile)', '(tyres, servicing, wear. 5–10p is typical)', '0.1')}
-      <h3>Monthly costs</h3>
+      <h2>Monthly costs</h2>
       ${field('insuranceMonthly', 'Insurance (£ per month)', '(including hire & reward)')}
       ${field('otherMonthly', 'Other fixed costs (£ per month)', '(phone data, bag, etc.)')}
       ${field('hoursPerWeek', 'Hours you drive per week', '(spreads monthly costs over your hours)', '1')}
-      <h3>Tax</h3>
+      <h2>Tax</h2>
       ${field('taxPct', 'Tax reserve (% of profit)', '(money to put aside for your tax bill)', '1')}
       <div id="derived" class="preview"></div>
       <button class="btn primary huge" type="submit">Save settings</button>
-      <p class="muted small">Changing these only affects new shifts. Saved shifts keep the figures they were recorded with.</p>
+      <p class="muted small">Changes save automatically. They only affect new shifts. Saved shifts keep the figures they were recorded with.</p>
     </form>
 
     <div class="card">
-      <h3>Your data</h3>
+      <h2>Your data</h2>
       <p class="muted small">Everything is stored only on this phone. Download a backup now and then. If you clear Chrome's data or uninstall, unbacked-up shifts are lost.</p>
       <button class="btn" id="csv">Export shifts as spreadsheet (CSV)</button>
       <button class="btn" id="backup">Download backup file</button>
@@ -432,28 +436,33 @@ function renderSettings(view) {
     </div>`;
 
   const f = $('#sf');
-  const read = () => Object.fromEntries(Object.keys(DEFAULT_SETTINGS).map((k) => [k, parseFloat(f[k].value) || 0]));
+  const read = () => Object.fromEntries(Object.keys(DEFAULT_SETTINGS).map((k) => [k, Math.max(0, parseFloat(f[k].value) || 0)]));
   const updateDerived = () => {
     const d = read();
     $('#derived').innerHTML = `
       <div class="line"><span>Fuel cost per mile</span><b>${money(fuelCostPerMile(d))}</b></div>
       <div class="line"><span>Fixed costs per hour</span><b>${money(fixedCostPerHour(d))}</b></div>`;
   };
+  // Saved automatically when a box is changed, so nothing is lost by switching tabs.
+  const persist = (announce) => {
+    const d = read();
+    if (d.mpg <= 0) return toast('MPG must be more than 0');
+    store.settings = d;
+    if (announce) toast('Settings saved');
+  };
   f.addEventListener('input', updateDerived);
+  f.addEventListener('change', () => persist(false));
   updateDerived();
 
   f.onsubmit = (e) => {
     e.preventDefault();
-    const d = read();
-    if (d.mpg <= 0) return toast('MPG must be more than 0');
-    store.settings = d;
-    toast('Settings saved');
+    persist(true);
   };
 
   $('#csv').onclick = exportCsv;
   $('#backup').onclick = exportBackup;
   $('#restore').onclick = () => $('#file').click();
-  $('#file').onchange = (e) => importBackup(e.target.files[0]);
+  $('#file').onchange = (e) => { importBackup(e.target.files[0]); e.target.value = ''; };
 }
 
 function download(filename, text, type) {
@@ -496,9 +505,12 @@ async function importBackup(file) {
   try {
     const data = JSON.parse(await file.text());
     if (data.app !== 'shift-profit' || !Array.isArray(data.shifts)) throw new Error('bad file');
-    if (!confirm(`Restore ${data.shifts.length} shifts from this backup? This replaces what's on the phone now.`)) return;
+    const shifts = data.shifts
+      .filter((s) => s && s.id && !isNaN(new Date(s.start)) && !isNaN(new Date(s.end)))
+      .map((s) => ({ ...s, settings: { ...DEFAULT_SETTINGS, ...s.settings } }));
+    if (!confirm(`Restore ${shifts.length} shifts from this backup? This replaces what's on the phone now.`)) return;
     store.settings = { ...DEFAULT_SETTINGS, ...data.settings };
-    store.shifts = data.shifts;
+    store.shifts = shifts;
     store.active = data.active || null;
     toast('Backup restored');
     render();

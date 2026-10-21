@@ -1,0 +1,11 @@
+{
+  "private": true,
+  "scripts": {
+    "serve": "python3 -m http.server 8765 --directory ..",
+    "test": "node functional.js && node accessibility.js"
+  },
+  "devDependencies": {
+    "axe-core": "4.10.2",
+    "playwright": "1.56.1"
+  }
+}

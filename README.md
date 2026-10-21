@@ -26,3 +26,13 @@ Each shift keeps a copy of the settings it was recorded with, so changing petrol
 ## Files
 
 Plain HTML, CSS and JavaScript, with no build step. `calc.js` holds the maths, `app.js` the screens, and `sw.js` provides offline support. Hosted with GitHub Pages.
+
+## Tests
+
+`tests/` has two browser checks that run on a phone-sized screen. `functional.js` taps every button and fills every input, including mistakes on purpose. `accessibility.js` checks every screen in light and dark mode for contrast, labels and tap targets of at least 48px.
+
+```
+cd tests && npm install
+npm run serve &   # serves the app on localhost:8765
+npm test
+```

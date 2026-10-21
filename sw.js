@@ -1,7 +1,7 @@
 // Offline support. Serves the app from cache and refreshes the cache in the
 // background, so a new version shows up the next time the app is opened.
 // Bump VERSION when changing the list of files.
-const VERSION = 'v1';
+const VERSION = 'v2';
 const CACHE = 'shift-profit-' + VERSION;
 const FILES = ['./', 'index.html', 'style.css', 'calc.js', 'app.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png'];
