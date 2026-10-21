@@ -9,6 +9,9 @@ const DEFAULT_SETTINGS = {
   mpg: 45,              // UK MPG
   maintPence: 5,        // pence per mile (tyres, servicing, wear)
   insurancePerHour: 1.16, // £ per hour on shift (pay-as-you-go, e.g. Zego)
+  targetPerHour: 15,    // order calculator: £/hr an order should beat
+  townMph: 15,          // order calculator: average speed to estimate minutes
+  stopMins: 8,          // order calculator: restaurant wait, parking, handover
 };
 
 function load(key, fallback) {
@@ -100,7 +103,7 @@ function render() {
   window.scrollTo(0, 0);
   const [route, id] = location.hash.slice(1).split('/');
   const view = $('#view');
-  const tab = { history: 'history', shift: 'history', edit: 'history', add: 'history', settings: 'settings' }[route] || 'home';
+  const tab = { order: 'order', history: 'history', shift: 'history', edit: 'history', add: 'history', settings: 'settings' }[route] || 'home';
   document.querySelectorAll('.tab').forEach((b) => {
     b.classList.toggle('active', b.dataset.tab === tab);
     if (b.dataset.tab === tab) b.setAttribute('aria-current', 'page');
@@ -112,6 +115,7 @@ function render() {
     case 'add': return renderShiftForm(view, 'add');
     case 'edit': return renderShiftForm(view, 'edit', id);
     case 'shift': return renderShift(view, id);
+    case 'order': return renderOrder(view);
     case 'history': return renderHistory(view);
     case 'settings': return renderSettings(view);
     default: return renderHome(view);
@@ -465,6 +469,63 @@ function renderShift(view, id) {
   };
 }
 
+// ---------- Order calculator ----------
+
+// Kept while the app is open, so switching to Deliveroo and back keeps the numbers.
+const orderInput = { fee: '', miles: '', mins: '' };
+
+function renderOrder(view) {
+  view.innerHTML = `
+    <div id="order-result" class="order-result" aria-live="polite"></div>
+    <form id="of" class="card" novalidate>
+      <div class="pair">
+        <label class="field"><span>Fee (£)</span>
+          <input name="fee" type="number" inputmode="decimal" step="0.01" min="0" placeholder="e.g. 4.50" value="${esc(orderInput.fee)}"></label>
+        <label class="field"><span>Miles</span>
+          <input name="miles" type="number" inputmode="decimal" step="0.1" min="0" placeholder="e.g. 2.5" value="${esc(orderInput.miles)}"></label>
+      </div>
+      <label class="field"><span>Minutes <small>(optional, if the offer shows a time)</small></span>
+        <input name="mins" type="number" inputmode="numeric" min="0" placeholder="Leave blank to estimate" value="${esc(orderInput.mins)}"></label>
+      <button class="btn" type="button" id="clear">Clear for next order</button>
+    </form>`;
+
+  const f = $('#of');
+  const update = () => {
+    for (const k in orderInput) orderInput[k] = f[k].value.trim();
+    const s = store.settings;
+    const fee = parseFloat(orderInput.fee), miles = parseFloat(orderInput.miles), mins = parseFloat(orderInput.mins);
+    const r = orderInput.fee !== '' && orderInput.miles !== '' && fee >= 0 && miles >= 0 ? calcOrder(s, fee, miles, mins) : null;
+    if (!r) {
+      $('#order-result').innerHTML = `<div class="card center muted">Type the fee and miles from the offer.<br>Your £/hr appears here.</div>`;
+      return;
+    }
+    const [icon, word] = { good: ['✓', 'Worth taking'], ok: ['!', 'Borderline'], poor: ['✕', 'Not worth it'] }[r.grade];
+    $('#order-result').innerHTML = `
+      <div class="card order ${r.grade}">
+        <div class="big">${money(r.hourly)}<span>/hr profit</span></div>
+        <div class="verdict"><span class="verdict-icon" aria-hidden="true">${icon}</span>${word}</div>
+        <div class="row3">
+          <div><b>${money(r.profit)}</b><small>profit</small></div>
+          <div><b>${money(r.costs)}</b><small>costs</small></div>
+          <div><b>${Math.round(r.mins)} min</b><small>${r.estimated ? 'estimated' : 'from offer'}</small></div>
+        </div>
+        <p class="muted small center">${r.estimated
+          ? `Time estimated: ${num(miles)} mi at ${num(s.townMph)} mph + ${num(s.stopMins)} min stops. `
+          : ''}Target: ${money(s.targetPerHour)}/hr</p>
+      </div>`;
+  };
+
+  f.addEventListener('input', update);
+  f.onsubmit = (e) => e.preventDefault();
+  $('#clear').onclick = () => {
+    for (const k in orderInput) { orderInput[k] = ''; f[k].value = ''; }
+    update();
+    f.fee.focus();
+  };
+  update();
+  if (orderInput.fee === '') f.fee.focus();
+}
+
 // ---------- History ----------
 
 function renderHistory(view) {
@@ -529,6 +590,10 @@ function renderSettings(view) {
       ${field('maintPence', 'Maintenance (pence per mile)', '(tyres, servicing, wear. 5–10p is typical)', '0.1')}
       <h2>Insurance</h2>
       ${field('insurancePerHour', 'Insurance (£ per hour on shift)', '(pay-as-you-go, e.g. Zego)')}
+      <h2>Order calculator</h2>
+      ${field('targetPerHour', 'Target profit per order (£ per hour)', '(aim higher than your shift target, to cover waiting between orders)')}
+      ${field('townMph', 'Average town speed (mph)', '(used to estimate time when an offer only shows miles)', '1')}
+      ${field('stopMins', 'Stop time per order (minutes)', '(restaurant wait, parking and handover)', '1')}
       <div id="derived" class="preview"></div>
       <button class="btn primary huge" type="submit">Save settings</button>
       <p class="muted small">Changes save automatically. They only affect new shifts. Saved shifts keep the figures they were recorded with.</p>

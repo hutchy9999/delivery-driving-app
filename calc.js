@@ -40,6 +40,21 @@ function calcShift(shift) {
   };
 }
 
+// Estimate for a single order offer. If the offer doesn't give a time, it's
+// estimated from the miles at town speed plus time stopped at each end.
+function calcOrder(s, fee, miles, minutes) {
+  const estimated = !(minutes > 0);
+  const mph = Number(s.townMph) || 0;
+  const mins = estimated ? (mph > 0 ? (miles / mph) * 60 : 0) + (Number(s.stopMins) || 0) : minutes;
+  if (!(mins > 0)) return null;
+  const costs = miles * (fuelCostPerMile(s) + (Number(s.maintPence) || 0) / 100) + (mins / 60) * insurancePerHour(s);
+  const profit = fee - costs;
+  const hourly = (profit / mins) * 60;
+  const target = Number(s.targetPerHour) || 0;
+  const grade = hourly >= target ? 'good' : hourly >= target * 0.75 ? 'ok' : 'poor';
+  return { mins, estimated, costs, profit, hourly, grade };
+}
+
 function sumResults(results) {
   const t = { hours: 0, miles: 0, earnings: 0, fuel: 0, maintenance: 0, insurance: 0, costs: 0, profit: 0 };
   for (const r of results) for (const k in t) t[k] += r[k];
@@ -48,5 +63,5 @@ function sumResults(results) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { LITRES_PER_UK_GALLON, insurancePerHour, fuelCostPerMile, calcShift, sumResults };
+  module.exports = { LITRES_PER_UK_GALLON, insurancePerHour, fuelCostPerMile, calcShift, calcOrder, sumResults };
 }
