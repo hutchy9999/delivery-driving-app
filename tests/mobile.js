@@ -16,6 +16,8 @@ const SCREENS = [
   ['first run (empty)', null, '#home'],
   ['shift: idle + graph', seed(), '#home', async (p) => { const b = await p.locator('#chart svg').boundingBox(); await p.mouse.click(b.x + b.width - 5, b.y + 50); }],
   ['shift: active', seed({ 'sp.active': JSON.stringify({ start: new Date(Date.now() - 3600e3).toISOString(), startOdo: '100' }) }), '#home'],
+  ['shift: 13h running', seed({ 'sp.active': JSON.stringify({ start: new Date(Date.now() - 13 * 3600e3).toISOString(), startOdo: '' }) }), '#home'],
+  ['shift: backup reminder', seed(), '#home'],
   ['end shift form', seed({ 'sp.active': JSON.stringify({ start: new Date(Date.now() - 3600e3).toISOString(), startOdo: '100' }) }), '#end', async (p) => { await p.click('#f button[type=submit]'); }],
   ['add past shift', seed(), '#add'],
   ['shift detail', seed(), '#shift/s0'],

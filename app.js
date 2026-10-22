@@ -2,7 +2,7 @@
 
 // ---------- Storage ----------
 
-const KEYS = { settings: 'sp.settings', shifts: 'sp.shifts', active: 'sp.active', places: 'sp.places', order: 'sp.order', area: 'sp.area' };
+const KEYS = { settings: 'sp.settings', shifts: 'sp.shifts', active: 'sp.active', places: 'sp.places', order: 'sp.order', area: 'sp.area', lastBackup: 'sp.lastBackup' };
 
 const DEFAULT_SETTINGS = {
   fuelPrice: 1.40,      // £ per litre
@@ -44,6 +44,8 @@ const store = {
   get area() { return load(KEYS.area, null) || DEFAULT_AREA; },
   set area(v) { save(KEYS.area, v); },
   set order(v) { save(KEYS.order, v); },
+  get lastBackup() { return load(KEYS.lastBackup, null); },
+  set lastBackup(v) { save(KEYS.lastBackup, v); },
 };
 
 // ---------- Formatting ----------
@@ -94,6 +96,35 @@ function toast(msg) {
 }
 
 const PIN_ICON = '<svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>';
+
+const LONG_SHIFT_HOURS = 12;
+const BACKUP_EVERY_DAYS = 14;
+
+const hoursSince = (iso) => (Date.now() - new Date(iso)) / 3600000;
+
+function longShiftNote(active) {
+  const h = hoursSince(active.start);
+  return h >= LONG_SHIFT_HOURS
+    ? `<p class="warn-note">⚠️ This shift has been running for ${duration(h)}. If you forgot to end it, change the <b>Finished</b> time when you end it.</p>`
+    : '';
+}
+
+// Nudge to back up once there's something worth losing and it's been a while.
+function backupNote() {
+  const last = store.lastBackup;
+  const days = last ? hoursSince(last) / 24 : Infinity;
+  if (store.shifts.length < 3 || days < BACKUP_EVERY_DAYS) return '';
+  return `
+    <div class="card notice">
+      <b>Back up your shifts.</b> ${last ? `Last backup was ${Math.floor(days)} days ago.` : "You haven't backed up yet."} If this phone breaks or Chrome's data is cleared, they're gone.
+      <button class="btn" id="backup-now">Download backup now</button>
+    </div>`;
+}
+
+function bindBackupNote() {
+  const b = $('#backup-now');
+  if (b) b.onclick = () => { exportBackup(); render(); };
+}
 
 function profitClass(n) {
   return n < 0 ? 'neg' : 'pos';
@@ -292,6 +323,7 @@ function renderHome(view) {
       <div class="card active-shift">
         <p class="muted">On shift since ${timeLabel(active.start)}${active.startOdo ? ` · odometer ${esc(active.startOdo)}` : ''}</p>
         <div class="clock" id="clock">${duration((Date.now() - new Date(active.start)) / 3600000)}</div>
+        ${longShiftNote(active)}
         <button class="btn primary huge danger" id="end">End shift</button>
         <button class="btn link" id="cancel">Cancel this shift</button>
       </div>`;
@@ -329,9 +361,11 @@ function renderHome(view) {
     </div>
     ${summaryCard('Today', todays)}
     ${summaryCard('This week', weeks)}
+    ${backupNote()}
     <a class="btn link" href="#add">Forgot to start? Add a past shift</a>`;
 
   bindChart(shifts);
+  bindBackupNote();
   $('#start').onclick = () => {
     store.active = { start: new Date().toISOString(), startOdo: $('#odo').value.trim() };
     toast('Shift started. Drive safe!');
@@ -346,7 +380,9 @@ function renderShiftForm(view, mode, id) {
   if (mode === 'end') {
     const active = store.active;
     if (!active) return go('#home');
-    shift = { start: active.start, end: new Date().toISOString(), startOdo: active.startOdo, endOdo: '', miles: '', earnings: '', note: '', settings: store.settings };
+    // A draft is kept while typing, so switching to Deliveroo to check a figure loses nothing.
+    const { timesEdited, ...draft } = active.draft || {};
+    shift = { start: active.start, end: new Date().toISOString(), startOdo: active.startOdo, endOdo: '', miles: '', earnings: '', note: '', ...draft, settings: store.settings };
   } else if (mode === 'edit') {
     shift = store.shifts.find((s) => s.id === id);
     if (!shift) return go('#history');
@@ -360,9 +396,10 @@ function renderShiftForm(view, mode, id) {
     <h2>${heading}</h2>
     <form id="f" class="card" novalidate>
       <label class="field">
-        <span>Total earnings from Deliveroo, including tips (£)</span>
+        <span>Total earnings from all your apps, including tips (£) <small>(tips added later? Edit the shift then)</small></span>
         <input name="earnings" type="number" inputmode="decimal" step="0.01" min="0" value="${esc(shift.earnings)}" placeholder="e.g. 75.40" required>
       </label>
+      ${mode === 'end' ? longShiftNote(store.active) : ''}
       <div class="pair">
         <label class="field"><span>Odometer start</span>
           <input name="startOdo" type="number" inputmode="decimal" value="${esc(shift.startOdo)}"></label>
@@ -415,6 +452,16 @@ function renderShiftForm(view, mode, id) {
   f.startOdo.addEventListener('input', syncMiles);
   f.endOdo.addEventListener('input', syncMiles);
   f.addEventListener('input', updatePreview);
+  if (mode === 'end') {
+    f.addEventListener('input', (e) => {
+      const { earnings, startOdo, endOdo, miles, start, end, note } = read();
+      const prev = store.active.draft || {};
+      // Times are only kept if you changed them; otherwise Finished stays "now".
+      const timesEdited = prev.timesEdited || e.target.name === 'start' || e.target.name === 'end';
+      const draft = { earnings, startOdo, endOdo, miles, note, timesEdited, ...(timesEdited ? { start, end } : {}) };
+      store.active = { ...store.active, draft };
+    });
+  }
   updatePreview();
   if (mode !== 'edit') f.earnings.focus();
 
@@ -456,7 +503,7 @@ function renderShift(view, id) {
     ${shift.note ? `<p class="muted">${esc(shift.note)}</p>` : ''}
     <div class="card">
       <div class="big ${profitClass(r.profitPerHour)}">${money(r.profitPerHour)}<span>/hr profit</span></div>
-      <p class="muted center">Deliveroo showed ${money(r.grossPerHour)}/hr before costs</p>
+      <p class="muted center">Your apps paid ${money(r.grossPerHour)}/hr before costs</p>
       <div class="row3">
         <div><b>${money(r.profit)}</b><small>profit</small></div>
         <div><b>${money(r.costs)}</b><small>costs</small></div>
@@ -660,7 +707,7 @@ function placePicker(container, label, onPick) {
           <span><b>${esc(r.name)}</b><small>${esc(addressLine(r)) || 'No address listed'}</small>${r.kind ? `<small class="kind">${esc(r.kind)}</small>` : ''}</span>
         </button>`).join('') : '') +
       (status ? `<div class="sugg-status">${status}</div>` : '') +
-      `<button type="button" data-new="1"><span class="accent-text">+ Not listed? Add "${esc(input.value.trim())}"</span></button>` +
+      (q.length >= 2 ? `<button type="button" data-new="1"><span class="accent-text">+ Not listed? Add "${esc(input.value.trim())}"</span></button>` : '') +
       (found.length ? `<div class="sugg-status small">Search results © OpenStreetMap contributors</div>` : '');
   };
 
@@ -747,6 +794,7 @@ function renderOrder(view) {
 function renderOffer(view) {
   const o = store.order;
   view.innerHTML = `
+    ${store.active ? '' : `<div class="card notice">Not on shift, so your time and insurance aren't being counted. <button class="btn" id="start-from-order">Start shift now</button></div>`}
     ${stepPills('offer')}
     <div id="order-result" aria-live="polite"></div>
     <form id="of" class="card" novalidate>
@@ -815,6 +863,8 @@ function renderOffer(view) {
   f.addEventListener('input', (e) => { if (!e.target.classList.contains('picker-input')) update(); });
   f.onsubmit = (e) => e.preventDefault();
   $('#take').onclick = () => { setOrder({ step: 'pickup' }); render(); };
+  const startHere = $('#start-from-order');
+  if (startHere) startHere.onclick = () => { store.active = { start: new Date().toISOString(), startOdo: '' }; toast('Shift started. Drive safe!'); render(); };
   $('#clear').onclick = () => { store.order = { ...EMPTY_ORDER }; render(); };
   showPlace();
   update();
@@ -922,7 +972,7 @@ function renderPlaces(view) {
   const show = () => {
     const q = search.value.trim().toLowerCase();
     const places = store.places
-      .filter((p) => `${p.name} ${p.area}`.toLowerCase().includes(q))
+      .filter((p) => `${p.name} ${p.area} ${p.address || ''}`.toLowerCase().includes(q))
       .sort(placesSort === 'slowest'
         ? (a, b) => (avgWait(b) ?? -1) - (avgWait(a) ?? -1)
         : (a, b) => (b.waits || []).length - (a.waits || []).length || a.name.localeCompare(b.name));
@@ -1086,6 +1136,7 @@ function renderSettings(view) {
     <div class="card">
       <h2>Your data</h2>
       <p class="muted small">Everything is stored only on this phone. Download a backup now and then. If you clear Chrome's data or uninstall, anything not backed up (shifts and places) is lost.</p>
+      <p class="small"><b>Last backup:</b> ${store.lastBackup ? `${dateLabel(store.lastBackup)} (${Math.floor(hoursSince(store.lastBackup) / 24)} days ago)` : 'never'}</p>
       <button class="btn" id="csv">Export shifts as spreadsheet (CSV)</button>
       <button class="btn" id="backup">Download backup file</button>
       <button class="btn" id="restore">Restore from backup file</button>
@@ -1093,7 +1144,14 @@ function renderSettings(view) {
     </div>`;
 
   const f = $('#sf');
-  const read = () => Object.fromEntries(Object.keys(DEFAULT_SETTINGS).map((k) => [k, Math.max(0, parseFloat(f[k].value) || 0)]));
+  // A box left empty keeps its previous value rather than becoming 0.
+  const read = () => {
+    const saved = store.settings;
+    return Object.fromEntries(Object.keys(DEFAULT_SETTINGS).map((k) => {
+      const v = parseFloat(f[k].value);
+      return [k, isNaN(v) ? saved[k] : Math.max(0, v)];
+    }));
+  };
   const updateDerived = () => {
     const d = read();
     $('#derived').innerHTML = `
@@ -1107,7 +1165,10 @@ function renderSettings(view) {
     if (announce) toast('Settings saved');
   };
   f.addEventListener('input', updateDerived);
-  f.addEventListener('change', () => persist(false));
+  f.addEventListener('change', (e) => {
+    if (e.target.value.trim() === '') e.target.value = store.settings[e.target.name];
+    persist(false);
+  });
   updateDerived();
 
   f.onsubmit = (e) => {
@@ -1171,6 +1232,8 @@ function exportCsv() {
 function exportBackup() {
   const data = { app: 'shift-profit', version: 1, exportedAt: new Date().toISOString(), settings: store.settings, shifts: store.shifts, active: store.active, places: store.places, area: store.area };
   download(`shift-profit-backup-${today()}.json`, JSON.stringify(data, null, 2), 'application/json');
+  store.lastBackup = new Date().toISOString();
+  toast('Backup saved to your Downloads folder');
 }
 
 async function importBackup(file) {
@@ -1203,10 +1266,11 @@ async function importBackup(file) {
 render();
 
 if ('serviceWorker' in navigator) {
-  // When an update takes over, reload to show it, unless a form is half filled in.
+  // When an update takes over, reload to show it, but only on screens where
+  // nothing can be half typed. Elsewhere it shows next time the app opens.
   const hadController = !!navigator.serviceWorker.controller;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (hadController && !/^#(end|add|edit)/.test(location.hash)) location.reload();
+    if (hadController && /^(#home|#history|#places)?$/.test(location.hash)) location.reload();
   });
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }

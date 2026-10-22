@@ -351,6 +351,65 @@ const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL:'
   ok(!(await ls('sp.places'))[0].spot, 'spot removed');
   await tap('[data-tab=home]');
 
+  // 12d. Out-and-about safety nets
+  // Wording covers every app
+  await p.evaluate(() => localStorage.removeItem('sp.active'));
+  await tap('[data-tab=home]'); await tap('#start');
+  await p.evaluate(() => { const a = JSON.parse(localStorage['sp.active']); a.start = new Date(Date.now() - 2 * 3600e3).toISOString(); localStorage['sp.active'] = JSON.stringify(a); });
+  await p.reload(); await p.waitForTimeout(100);
+  await tap('#end');
+  ok((await p.textContent('main')).includes('from all your apps'), 'earnings label covers all apps');
+  // Draft survives the app being closed; Finished time isn't frozen
+  await p.fill('[name=earnings]', '55.5'); await p.fill('[name=endOdo]', '999');
+  await p.reload(); await p.waitForTimeout(150);
+  ok(await p.inputValue('[name=earnings]') === '55.5' && await p.inputValue('[name=endOdo]') === '999', 'end-shift typing survives a reload');
+  ok(!('end' in (await ls('sp.active')).draft), 'finished time not frozen in the draft');
+  await p.fill('[name=miles]', '20'); await p.fill('[name=startOdo]', ''); await p.fill('[name=endOdo]', '');
+  await p.fill('[name=miles]', '20');
+  await tap('#f button[type=submit]');
+  const saved = (await ls('sp.shifts'))[0];
+  ok(!(await ls('sp.active')) && saved.earnings === 55.5 && !('draft' in saved) && !('timesEdited' in saved), 'draft cleared and not stored in the shift');
+  ok((await p.textContent('main')).includes('Your apps paid'), 'shift detail wording covers all apps');
+  // Long-running shift warning
+  await p.evaluate(() => localStorage['sp.active'] = JSON.stringify({ start: new Date(Date.now() - 13 * 3600e3).toISOString(), startOdo: '' }));
+  await tap('[data-tab=home]');
+  ok((await p.textContent('main')).includes('running for 13h'), 'long shift warning on Shift tab');
+  await tap('#end');
+  ok((await p.textContent('main')).includes('If you forgot to end it'), 'long shift warning when ending');
+  await p.evaluate(() => localStorage.removeItem('sp.active'));
+  // Not-on-shift reminder on the Order tab
+  await tap('[data-tab=order]');
+  ok(await p.isVisible('#start-from-order'), 'order tab warns when not on shift');
+  await tap('#start-from-order');
+  ok(!!(await ls('sp.active')) && !(await p.$('#start-from-order')), 'start shift from the order tab');
+  await p.evaluate(() => localStorage.removeItem('sp.active'));
+  // No accidental one-letter places
+  await tap('[data-tab=home]'); await tap('[data-tab=order]');
+  await p.fill('.picker-input', 'n');
+  ok(!(await p.$('.sugg [data-new]')), 'no add button after one letter');
+  await p.fill('.picker-input', 'ne');
+  ok(!!(await p.$('.sugg [data-new]')), 'add button after two letters');
+  await p.fill('.picker-input', '');
+  // Places search matches the address
+  await p.evaluate(() => { const ps = JSON.parse(localStorage['sp.places']); ps.push({ id: 'addr', name: 'Golden Wok', area: '', address: 'Oldham Street, Ancoats, M4 1AA', note: '', parkType: '', parkLimit: '', ease: '', spot: null, waits: [] }); localStorage['sp.places'] = JSON.stringify(ps); });
+  await tap('[data-tab=places]'); await p.fill('#place-search', 'ancoats');
+  ok((await p.textContent('#place-list')).includes('Golden Wok'), 'places search matches the address');
+  // Settings: a blank box keeps its value instead of becoming 0
+  await tap('#gear');
+  await p.fill('[name=fuelPrice]', '1.55'); await p.locator('[name=fuelPrice]').blur(); await p.waitForTimeout(60);
+  await p.fill('[name=fuelPrice]', ''); await p.locator('[name=fuelPrice]').blur(); await p.waitForTimeout(60);
+  ok((await ls('sp.settings')).fuelPrice === 1.55 && await p.inputValue('[name=fuelPrice]') === '1.55', 'blank settings box keeps the last value, not 0');
+  await p.fill('[name=fuelPrice]', '1.7'); await p.locator('[name=fuelPrice]').blur();
+  // Backup reminder
+  await p.evaluate(() => { localStorage.removeItem('sp.lastBackup'); const sh = JSON.parse(localStorage['sp.shifts']); while (sh.length < 3) sh.push({ ...sh[0], id: 'x' + sh.length }); localStorage['sp.shifts'] = JSON.stringify(sh); });
+  await tap('[data-tab=home]');
+  ok(await p.isVisible('#backup-now'), 'backup reminder shows when never backed up');
+  const [bk2] = await Promise.all([p.waitForEvent('download'), tap('#backup-now')]);
+  ok(bk2.suggestedFilename().endsWith('.json') && !!(await ls('sp.lastBackup')) && !(await p.$('#backup-now')), 'backup from reminder saves and hides it');
+  await tap('#gear');
+  ok((await p.textContent('main')).includes('Last backup:') && !(await p.textContent('main')).includes('Last backup: never'), 'settings shows last backup date');
+  await tap('[data-tab=home]');
+
   // 13. narrow phone: no sideways scrolling on any screen
   await p.setViewportSize({ width: 320, height: 640 });
   for (const h of ['#home', '#order', '#places', '#settings', '#history', '#add', '#shift/' + id, '#edit/' + id]) {
