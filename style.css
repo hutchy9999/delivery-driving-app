@@ -235,6 +235,10 @@ a.btn.link { text-decoration: underline; }
 }
 .sugg small, .picked small, .place-row small { display: block; }
 .accent-text { color: var(--accent-on-soft); font-weight: 600; }
+.sugg-head { padding: 8px 14px; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); background: var(--bg); }
+.sugg-status { padding: 12px 14px; color: var(--muted); background: var(--card); }
+.sugg-status.small { font-size: 13px; padding: 8px 14px; }
+.sugg .kind { text-transform: capitalize; }
 .picked { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 12px 14px; border-radius: 12px; background: var(--bg); border: 1px solid var(--border); }
 .picked + .btn.link { margin: 0; min-height: 48px; }
 

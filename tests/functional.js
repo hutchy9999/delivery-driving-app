@@ -1,11 +1,14 @@
 const { chromium, devices } = require('playwright');
 const fs = require('fs');
+const { mockPhoton } = require('./photon-mock');
 const URL = 'http://localhost:8765/';
 let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL:', msg); } };
 (async () => {
   const b = await chromium.launch();
   const ctx = await b.newContext({ ...devices['Pixel 7'], acceptDownloads: true, permissions: ['geolocation'], geolocation: { latitude: 51.5072, longitude: -0.1276, accuracy: 12 } });
+  let searchDown = false; const searches = [];
+  await mockPhoton(ctx, { fail: () => searchDown, log: searches });
   const p = await ctx.newPage();
   const errors = [];
   p.on('pageerror', e => errors.push(e.message));
@@ -225,7 +228,8 @@ const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL:'
   ok((await p.textContent('.steps')).replace(/\s+/g, ' ').includes('1 Offer'), 'offer step shown');
   await p.fill('[name=fee]', '5'); await p.fill('[name=miles]', '2');
   await p.fill('.picker-input', "Nando's");
-  ok((await p.textContent('.sugg')).includes('Add new place "Nando\'s"'), 'offers to add a new place');
+  await p.waitForTimeout(500);
+  ok((await p.textContent('.sugg')).includes('Not listed? Add "Nando\'s"'), 'offers to add a place that is not listed');
   await tap('.sugg [data-new]');
   ok((await p.textContent('.picked')).includes("Nando's") && (await p.textContent('.picked')).includes('No waits timed yet'), 'new place picked');
   res = await p.textContent('#order-result');
@@ -274,6 +278,57 @@ const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL:'
   ok(await p.isVisible('.picker-input'), 'waiting asks which restaurant if none chosen');
   await tap('#got');
   ok((await toast()).includes('Ready for the next order'), 'got food without a place');
+  // Restaurant search (OpenStreetMap via Photon, mocked)
+  await p.fill('[name=fee]', '6'); await p.fill('[name=miles]', '2');
+  await p.fill('.picker-input', 'nand');
+  ok((await p.textContent('.sugg')).includes('Searching'), 'shows searching while waiting');
+  await p.waitForTimeout(600);
+  let sugg = await p.textContent('.sugg');
+  ok(sugg.includes('Near Manchester') && sugg.includes('61 Piccadilly, Northern Quarter, M1 2AQ') && sugg.includes('Great Ancoats Street, Ancoats, M4 5AB'), 'search shows address, area and postcode: ' + sugg.replace(/\s+/g, ' '));
+  ok(!sugg.includes('Nandos Close') && !sugg.includes('W1D'), 'streets and far-away branches filtered out');
+  const last = searches[searches.length - 1];
+  ok(last.searchParams.get('lat') === '53.4808' && last.searchParams.get('bbox') && !last.toString().includes('51.50'), 'search uses work area, not live location: ' + last);
+  ok(sugg.includes('© OpenStreetMap contributors'), 'OpenStreetMap credited');
+  await tap('.sugg [data-remote="1"]');
+  let picked = await p.textContent('.picked');
+  ok(picked.includes("Nando's") && picked.includes('Ancoats'), 'picked the Ancoats branch: ' + picked);
+  const anc = (await ls('sp.places')).find((x) => x.osm === 'N102');
+  ok(anc && anc.address === 'Great Ancoats Street, Ancoats, M4 5AB' && anc.loc.lat === 53.4832, 'search result saved as a place with address and location');
+  await tap('#change-place'); await p.fill('.picker-input', 'nand'); await p.waitForTimeout(600);
+  sugg = await p.textContent('.sugg');
+  ok(sugg.includes('Your places') && (sugg.match(/Great Ancoats Street/g) || []).length === 1, 'saved branch listed once, under Your places');
+  await tap('.sugg [data-remote]');
+  ok((await ls('sp.places')).filter((x) => x.osm).length === 2, 'second branch saved separately');
+  await tap('#change-place'); await p.fill('.picker-input', 'nand'); await p.waitForTimeout(600);
+  const before = (await ls('sp.places')).length;
+  await tap('.sugg [data-id]');
+  ok((await ls('sp.places')).length === before, 'picking a saved place does not duplicate it');
+  await tap('#change-place'); await p.fill('.picker-input', 'nand'); await p.waitForTimeout(600);
+  await p.locator('.sugg [data-id]', { hasText: 'Ancoats' }).click(); await p.waitForTimeout(60);
+  await tap('#take');
+  const toRest = await p.getAttribute('#to-restaurant', 'href');
+  ok(toRest && toRest.includes('53.4832,-2.2251'), 'directions to restaurant before a parking spot is saved: ' + toRest);
+  ok((await p.textContent('main')).includes('Great Ancoats Street, Ancoats, M4 5AB'), 'pickup shows the address');
+  await tap('#back'); await tap('#clear');
+  // Search down: saved places still work
+  searchDown = true;
+  await p.fill('.picker-input', 'nand'); await p.waitForTimeout(600);
+  sugg = await p.textContent('.sugg');
+  ok(sugg.includes("isn't working") && sugg.includes('Your places') && await p.isVisible('.sugg [data-new]'), 'search failure falls back to saved places: ' + sugg.replace(/\s+/g, ' '));
+  searchDown = false;
+  await p.fill('.picker-input', ''); await tap('#clear');
+  // Work area
+  await tap('#gear');
+  await p.fill('#area', 'Leeds'); await p.locator('#area').blur(); await p.waitForTimeout(300);
+  ok((await ls('sp.area')).name === 'Leeds, West Yorkshire' && await p.inputValue('#area') === 'Leeds, West Yorkshire', 'work area looked up and saved');
+  await p.fill('#area', 'Nowhereville'); await p.locator('#area').blur(); await p.waitForTimeout(300);
+  ok((await p.textContent('#area-status')).includes("Couldn't find") && (await ls('sp.area')).name.startsWith('Leeds'), 'unknown area keeps the old one');
+  await tap('[data-tab=order]'); await p.fill('.picker-input', 'wing'); await p.waitForTimeout(600);
+  ok(searches[searches.length - 1].searchParams.get('lat') === '53.7997' && (await p.textContent('.sugg')).includes('No matches near Leeds'), 'search follows the new work area (Manchester venues filtered out)');
+  await p.fill('.picker-input', '');
+  await p.evaluate(() => localStorage.removeItem('sp.area'));
+  await p.evaluate(() => localStorage['sp.places'] = JSON.stringify(JSON.parse(localStorage['sp.places']).filter((x) => !x.osm)));
+
   // Places tab
   await tap('[data-tab=places]');
   ok((await p.textContent('.place-row')).includes("Nando's") && (await p.textContent('.place-row')).includes('spot saved'), 'place listed');

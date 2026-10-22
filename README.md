@@ -10,12 +10,13 @@ A personal web app for delivery driving. It shows your **real profit per hour** 
 1. **Settings (⚙️ top right):** enter your petrol price (£/L), UK MPG, and insurance (£ per hour on shift, e.g. Zego pay-as-you-go).
 2. **Shift tab:** daily profit graph for the last 14 days, with average profit, fuel and hours per day worked. Tap **Start shift** (optionally with your odometer reading), and **End shift** to enter your earnings.
 3. **Order tab**, in three steps:
-   - **Offer:** type the fee and miles (and minutes if the offer shows them), and optionally the restaurant. It shows the order's profit per hour and a verdict: worth taking, borderline or not worth it. If you've timed that restaurant before, it uses its own average wait.
+   - **Offer:** type the fee and miles (and minutes if the offer shows them), and optionally the restaurant. As you type its name, the dropdown shows your saved places first, then matching restaurants near your work area from OpenStreetMap, each with its street, area and postcode, so you can pick the right branch. It shows the order's profit per hour and a verdict: worth taking, borderline or not worth it. If you've timed that restaurant before, it uses its own average wait.
    - **Pickup:** shows your saved parking for the restaurant, with directions to it. On a first visit, tap **Save parking spot here** once you've parked. Tap **I've arrived** to start the wait timer.
    - **Waiting:** tap **Got the food** to save the wait time. While waiting, you can note where you parked, the time limit, how easy it was, and a note for next time.
 4. **Places tab:** your restaurants, with average wait, parking and notes. Sort by most visited or slowest wait. Tap one to edit it.
 5. **History tab:** shifts grouped by week. Tap a shift to see the breakdown, or to edit or delete it.
-6. **Backups:** in Settings, use **Download backup file** now and then. Clearing Chrome's data deletes your shifts and places.
+6. **Work area (⚙️ → Restaurant search):** the town or city your search results come from. Starts as Manchester. Searching sends only what you type and this area to Photon (OpenStreetMap search), never your location.
+7. **Backups:** in Settings, use **Download backup file** now and then. Clearing Chrome's data deletes your shifts and places.
 
 ## How it calculates
 

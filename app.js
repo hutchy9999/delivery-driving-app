@@ -2,7 +2,7 @@
 
 // ---------- Storage ----------
 
-const KEYS = { settings: 'sp.settings', shifts: 'sp.shifts', active: 'sp.active', places: 'sp.places', order: 'sp.order' };
+const KEYS = { settings: 'sp.settings', shifts: 'sp.shifts', active: 'sp.active', places: 'sp.places', order: 'sp.order', area: 'sp.area' };
 
 const DEFAULT_SETTINGS = {
   fuelPrice: 1.40,      // £ per litre
@@ -41,6 +41,8 @@ const store = {
   get places() { return load(KEYS.places, []); },
   set places(v) { save(KEYS.places, v); },
   get order() { return { ...EMPTY_ORDER, ...load(KEYS.order, {}) }; },
+  get area() { return load(KEYS.area, null) || DEFAULT_AREA; },
+  set area(v) { save(KEYS.area, v); },
   set order(v) { save(KEYS.order, v); },
 };
 
@@ -554,33 +556,140 @@ function saveSpot(id, done) {
   );
 }
 
-// Search box that matches saved places as you type, with an option to add a new one.
+// ---------- Restaurant search (OpenStreetMap, via Photon) ----------
+
+// Results are limited to roughly 20 km around the work area set in Settings.
+// Only what you type and the work area are sent, never your live location.
+const SEARCH_URL = 'https://photon.komoot.io/api/';
+const DEFAULT_AREA = { name: 'Manchester', lat: 53.4808, lon: -2.2426 };
+const NOT_VENUES = ['highway', 'place', 'boundary', 'landuse', 'natural', 'waterway', 'railway', 'route', 'admin'];
+
+function photonUrl(params) {
+  const u = new URL(SEARCH_URL);
+  for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
+  return u.toString();
+}
+
+function kmBetween(a, b) {
+  const rad = (d) => (d * Math.PI) / 180;
+  const h = Math.sin(rad(b.lat - a.lat) / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(rad(b.lon - a.lon) / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(h));
+}
+
+async function searchVenues(q, signal) {
+  const a = store.area;
+  const res = await fetch(photonUrl({
+    q, lat: a.lat, lon: a.lon, limit: 15, lang: 'en',
+    bbox: [a.lon - 0.33, a.lat - 0.2, a.lon + 0.33, a.lat + 0.2].map((n) => n.toFixed(4)).join(','),
+  }), { signal });
+  if (!res.ok) throw new Error('search failed');
+  const data = await res.json();
+  return (data.features || [])
+    .filter((f) => f.properties && f.properties.name && !NOT_VENUES.includes(f.properties.osm_key))
+    .map((f) => {
+      const p = f.properties;
+      const [lon, lat] = f.geometry.coordinates;
+      return {
+        osm: `${p.osm_type}${p.osm_id}`,
+        name: p.name,
+        street: [p.housenumber, p.street].filter(Boolean).join(' '),
+        area: p.district || p.locality || '',
+        postcode: p.postcode || '',
+        kind: (p.osm_value || '').replace(/_/g, ' '),
+        lat, lon,
+      };
+    })
+    .filter((r) => kmBetween(a, r) <= 30)
+    .slice(0, 8);
+}
+
+// Looks up a town or postcode area typed in Settings.
+async function findArea(q) {
+  const res = await fetch(photonUrl({ q, limit: 1, lang: 'en', countrycode: 'GB' }));
+  if (!res.ok) throw new Error('lookup failed');
+  const f = ((await res.json()).features || [])[0];
+  if (!f) return null;
+  const [lon, lat] = f.geometry.coordinates;
+  return { name: [f.properties.name, f.properties.county || f.properties.state].filter(Boolean).join(', '), lat, lon };
+}
+
+const addressLine = (x) => [x.street, x.area, x.postcode].filter(Boolean).join(', ');
+
+// Saves a search result as a place, or returns the place already saved for it.
+function placeFromResult(r) {
+  const existing = store.places.find((p) => p.osm === r.osm);
+  if (existing) return existing;
+  const place = {
+    ...addPlace(r.name),
+    osm: r.osm,
+    area: r.area || r.street,
+    address: addressLine(r),
+    loc: { lat: r.lat, lng: r.lon },
+  };
+  updatePlace(place.id, place);
+  return place;
+}
+
+// Search box: your saved places first (instant, works offline), then
+// matching venues near your work area from OpenStreetMap.
 function placePicker(container, label, onPick) {
   container.innerHTML = `
     <label class="field"><span>${label}</span>
-      <input type="text" class="picker-input" autocomplete="off" placeholder="Type 2–3 letters, or paste the name"></label>
+      <input type="text" class="picker-input" autocomplete="off" placeholder="Type the restaurant name"></label>
     <div class="sugg"></div>`;
   const input = $('.picker-input', container);
   const list = $('.sugg', container);
+  let remote = [], status = '', ctrl = null, wait = null;
+
   const show = () => {
     const q = input.value.trim().toLowerCase();
     if (!q) { list.innerHTML = ''; return; }
-    const matches = store.places
-      .filter((p) => `${p.name} ${p.area}`.toLowerCase().includes(q))
+    const saved = store.places
+      .filter((p) => `${p.name} ${p.area} ${p.address || ''}`.toLowerCase().includes(q))
       .sort((a, b) => (b.waits || []).length - (a.waits || []).length)
-      .slice(0, 5);
-    const exact = matches.some((p) => p.name.toLowerCase() === q);
-    list.innerHTML = matches.map((p) => `
+      .slice(0, 4);
+    const savedOsm = new Set(saved.map((p) => p.osm).filter(Boolean));
+    const found = remote.filter((r) => !savedOsm.has(r.osm));
+    list.innerHTML =
+      (saved.length ? `<div class="sugg-head">Your places</div>` + saved.map((p) => `
         <button type="button" data-id="${esc(p.id)}">
-          <span><b>${placeName(p)}</b><small>${placeMeta(p)}</small></span>${easeTag(p)}
-        </button>`).join('') +
-      (exact ? '' : `<button type="button" data-new="1"><span class="accent-text">+ Add new place "${esc(input.value.trim())}"</span></button>`);
+          <span><b>${placeName(p)}</b>${p.address ? `<small>${esc(p.address)}</small>` : ''}<small>${placeMeta(p)}</small></span>${easeTag(p)}
+        </button>`).join('') : '') +
+      (found.length ? `<div class="sugg-head">Near ${esc(store.area.name.split(',')[0])}</div>` + found.map((r, i) => `
+        <button type="button" data-remote="${remote.indexOf(r)}">
+          <span><b>${esc(r.name)}</b><small>${esc(addressLine(r)) || 'No address listed'}</small>${r.kind ? `<small class="kind">${esc(r.kind)}</small>` : ''}</span>
+        </button>`).join('') : '') +
+      (status ? `<div class="sugg-status">${status}</div>` : '') +
+      `<button type="button" data-new="1"><span class="accent-text">+ Not listed? Add "${esc(input.value.trim())}"</span></button>` +
+      (found.length ? `<div class="sugg-status small">Search results © OpenStreetMap contributors</div>` : '');
   };
-  input.addEventListener('input', show);
+
+  input.addEventListener('input', () => {
+    clearTimeout(wait);
+    if (ctrl) ctrl.abort();
+    remote = [];
+    const q = input.value.trim();
+    status = q.length >= 3 ? 'Searching…' : '';
+    show();
+    if (q.length < 3) return;
+    wait = setTimeout(async () => {
+      ctrl = new AbortController();
+      try {
+        remote = await searchVenues(q, ctrl.signal);
+        status = remote.length ? '' : `No matches near ${esc(store.area.name.split(',')[0])}. Try fewer letters.`;
+      } catch (e) {
+        if (e.name === 'AbortError') return;
+        status = navigator.onLine === false ? 'No signal: showing your saved places only' : "Search isn't working right now";
+      }
+      show();
+    }, 350);
+  });
   list.addEventListener('click', (e) => {
     const b = e.target.closest('button');
     if (!b) return;
-    onPick(b.dataset.new ? addPlace(input.value) : getPlace(b.dataset.id));
+    if (b.dataset.new) onPick(addPlace(input.value));
+    else if (b.dataset.remote !== undefined) onPick(placeFromResult(remote[+b.dataset.remote]));
+    else onPick(getPlace(b.dataset.id));
   });
   return input;
 }
@@ -728,7 +837,7 @@ function renderPickup(view) {
     const wait = avgWait(place);
     slot.innerHTML = `
       <div class="card">
-        <div class="place-head"><div><h2 class="place-title">${esc(place.name)}</h2><span class="muted">${esc(place.area) || (place.waits.length ? '' : 'First visit')}</span></div>${easeTag(place)}</div>
+        <div class="place-head"><div><h2 class="place-title">${esc(place.name)}</h2><span class="muted">${esc(place.address || place.area) || (place.waits.length ? '' : 'First visit')}</span></div>${easeTag(place)}</div>
         ${parkingLine(place)}
         ${place.note ? `<div class="note">📝 ${esc(place.note)}</div>` : ''}
         ${wait !== null ? `<div class="facts"><div><b>${Math.round(wait)} min</b><small>avg wait</small></div><div><b>${place.waits.length}</b><small>visit${place.waits.length > 1 ? 's' : ''}</small></div></div>` : ''}
@@ -736,6 +845,7 @@ function renderPickup(view) {
           ? `<a class="btn primary huge icon" id="directions" href="${directionsUrl(place.spot)}" target="_blank" rel="noopener">${PIN_ICON} Directions to parking</a>
              <button class="btn link" id="spot">Update parking spot to here</button>`
           : `<p class="muted">No parking saved yet. Once you've parked, save the spot so next time the app can take you straight there.</p>
+             ${place.loc ? `<a class="btn icon" id="to-restaurant" href="${directionsUrl(place.loc)}" target="_blank" rel="noopener">${PIN_ICON} Directions to restaurant</a>` : ''}
              <button class="btn primary huge icon" id="spot">${PIN_ICON} Save parking spot here</button>`}
       </div>`;
     $('#spot').onclick = () => saveSpot(place.id, render);
@@ -845,6 +955,8 @@ function renderPlace(view, id) {
     <div class="card">
       <label class="field"><span>Restaurant name</span><input name="name" type="text" value="${esc(p.name)}" maxlength="80"></label>
       <label class="field"><span>Area or street <small>(helps tell branches apart)</small></span><input name="area" type="text" value="${esc(p.area)}" maxlength="80" placeholder="e.g. High Street"></label>
+      ${p.address ? `<p class="muted small">📍 ${esc(p.address)}</p>` : ''}
+      ${p.loc ? `<a class="btn icon" href="${directionsUrl(p.loc)}" target="_blank" rel="noopener">${PIN_ICON} Directions to restaurant</a>` : ''}
     </div>
     <div class="card">
       <h2>Parking spot</h2>
@@ -964,6 +1076,14 @@ function renderSettings(view) {
     </form>
 
     <div class="card">
+      <h2>Restaurant search</h2>
+      <label class="field"><span>Work area <small>(town, city or postcode area)</small></span>
+        <input id="area" type="text" autocomplete="off" value="${esc(store.area.name)}" placeholder="e.g. Manchester"></label>
+      <p class="muted small" id="area-status">Searches show restaurants within about 12 miles of ${esc(store.area.name)}.</p>
+      <p class="muted small">Searching sends what you type and your work area to Photon (OpenStreetMap search). Your location, shifts and notes never leave this phone.</p>
+    </div>
+
+    <div class="card">
       <h2>Your data</h2>
       <p class="muted small">Everything is stored only on this phone. Download a backup now and then. If you clear Chrome's data or uninstall, anything not backed up (shifts and places) is lost.</p>
       <button class="btn" id="csv">Export shifts as spreadsheet (CSV)</button>
@@ -994,6 +1114,23 @@ function renderSettings(view) {
     e.preventDefault();
     persist(true);
   };
+
+  const area = $('#area');
+  area.addEventListener('change', async () => {
+    const q = area.value.trim();
+    if (!q) { area.value = store.area.name; return; }
+    $('#area-status').textContent = 'Looking up…';
+    try {
+      const found = await findArea(q);
+      if (!found) { $('#area-status').textContent = `Couldn't find "${q}". Try a town or postcode area.`; return; }
+      store.area = found;
+      area.value = found.name;
+      $('#area-status').textContent = `Searches show restaurants within about 12 miles of ${found.name}.`;
+      toast('Work area saved');
+    } catch {
+      $('#area-status').textContent = "Couldn't look that up. Check your signal and try again.";
+    }
+  });
 
   $('#csv').onclick = exportCsv;
   $('#backup').onclick = exportBackup;
@@ -1032,7 +1169,7 @@ function exportCsv() {
 }
 
 function exportBackup() {
-  const data = { app: 'shift-profit', version: 1, exportedAt: new Date().toISOString(), settings: store.settings, shifts: store.shifts, active: store.active, places: store.places };
+  const data = { app: 'shift-profit', version: 1, exportedAt: new Date().toISOString(), settings: store.settings, shifts: store.shifts, active: store.active, places: store.places, area: store.area };
   download(`shift-profit-backup-${today()}.json`, JSON.stringify(data, null, 2), 'application/json');
 }
 
@@ -1052,6 +1189,7 @@ async function importBackup(file) {
     store.settings = { ...DEFAULT_SETTINGS, ...data.settings };
     store.shifts = shifts;
     store.places = places;
+    if (data.area && isFinite(data.area.lat) && isFinite(data.area.lon)) store.area = data.area;
     store.active = data.active || null;
     toast('Backup restored');
     render();

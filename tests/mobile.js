@@ -1,6 +1,7 @@
 // Every screen/state × light/dark × 3 widths. Measures targets, spacing, font sizes, clipping, overflow + axe.
 const { chromium, devices } = require('playwright');
 const fs = require('fs');
+const { mockPhoton } = require('./photon-mock');
 const AXE = fs.readFileSync(require.resolve('axe-core/axe.min.js'), 'utf8');
 const U = 'http://localhost:8765/';
 const S = { fuelPrice: 1.7, mpg: 32, maintPence: 5, insurancePerHour: 1.16, goodPerHour: 12, okPerHour: 10, townMph: 15, stopMins: 8, handoverMins: 3 };
@@ -22,6 +23,7 @@ const SCREENS = [
   ['history (empty)', { 'sp.settings': JSON.stringify(S) }, '#history'],
   ['order: offer empty', seed(), '#order'],
   ['order: offer + picker open', seed(), '#order', async (p) => { await p.fill('[name=fee]', '5'); await p.fill('[name=miles]', '2'); await p.fill('.picker-input', 'n'); }],
+  ['order: search results', seed(), '#order', async (p) => { await p.fill('.picker-input', 'nand'); await p.waitForTimeout(600); }],
   ['order: offer + place picked', seed({ 'sp.order': JSON.stringify({ step: 'offer', fee: '5', miles: '2', placeId: 'n' }) }), '#order'],
   ['order: pickup known', seed({ 'sp.order': JSON.stringify({ step: 'pickup', placeId: 'n' }) }), '#order'],
   ['order: pickup first visit', seed({ 'sp.order': JSON.stringify({ step: 'pickup', placeId: 'x' }) }), '#order'],
@@ -42,6 +44,7 @@ const SIZES = [['Pixel 7 (412px)', 412], ['small phone (320px)', 320], ['large t
   const add = (k, where) => { if (!issues.has(k)) issues.set(k, new Set()); issues.get(k).add(where); };
   for (const scheme of ['light', 'dark']) for (const [sizeName, width] of SIZES) {
     const ctx = await b.newContext({ ...devices['Pixel 7'], viewport: { width, height: 800 }, colorScheme: scheme, permissions: ['geolocation'], geolocation: { latitude: 51.5, longitude: -0.12 } });
+    await mockPhoton(ctx);
     const p = await ctx.newPage(); p.on('dialog', (d) => d.dismiss());
     await p.goto(U);
     for (const [name, data, hash, act] of SCREENS) {
