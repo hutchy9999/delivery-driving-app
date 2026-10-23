@@ -31,6 +31,8 @@ Each shift keeps a copy of the settings it was recorded with, so changing petrol
 
 ## Files
 
+For project goals, the reasoning behind the delivery workflow, implementation details, validation and deferred improvements, read [Development notes and decisions](docs/DEVELOPMENT_NOTES.md).
+
 Plain HTML, CSS and JavaScript, with no build step. `calc.js` holds the maths, `app.js` the screens, and `sw.js` provides offline support. Hosted with GitHub Pages.
 
 ## Tests
