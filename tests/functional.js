@@ -15,22 +15,19 @@ const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL:'
   let dialogAnswer = true, lastDialog = '';
   p.on('dialog', d => { lastDialog = d.message(); dialogAnswer ? d.accept() : d.dismiss(); });
   const toast = async () => { await p.waitForTimeout(80); return (await p.isVisible('#toast')) ? p.textContent('#toast') : ''; };
-  const tap = async (s) => { await p.click(s); await p.waitForTimeout(60); };
+  const tap = async (s) => { if (s === '#cancel' && !(await p.isVisible(s))) await p.click('.shift-options summary'); await p.click(s); await p.waitForTimeout(60); };
+  const fillMinutes = async (value) => { if (!(await p.isVisible('[name=mins]'))) await p.click('.offer-extra summary'); await p.fill('[name=mins]', value); };
   const hash = () => p.evaluate(() => location.hash);
   const ls = (k) => p.evaluate(k => JSON.parse(localStorage[k] || 'null'), k);
 
   await p.goto(URL);
   // 0. chart shows from the start, empty
-  ok(await p.isVisible('#chart svg'), 'chart visible with no data');
+  ok(await p.isVisible('#chart'), 'compact chart placeholder visible with no data');
   ok(await p.getAttribute('[data-chart-range="today"]', 'aria-pressed') === 'true', 'Today is default');
   await tap('[data-chart-range="fortnight"]');
   ok((await p.textContent('#chart')).includes('No shifts in the last 2 weeks'), 'empty chart message');
-  const axis = await p.$$eval('#chart .axis', (ts) => ts.map((t) => ({ text: t.textContent, box: t.getBoundingClientRect() })));
-  const dates = axis.filter((t) => /\d+ \w{3}$/.test(t.text));
-  const todayLabel = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-  ok(axis.filter((t) => t.text.startsWith('£')).length === 5, 'empty chart has 5 £ labels');
-  ok(dates.length >= 4 && dates[dates.length - 1].text === todayLabel, 'date labels end with today: ' + dates.map((d) => d.text).join(', '));
-  ok(dates.every((d, i) => i === 0 || d.box.left >= dates[i - 1].box.right + 4), 'date labels do not overlap');
+  ok(await p.locator('#chart svg').count() === 0, 'no empty axes before recording work');
+  ok(await p.locator('#chart-previous').count() === 0, 'no disabled point controls in empty state');
   ok(await p.locator('#chart .dot').count() === 0, 'no points when empty');
   // 1. first-run banner
   ok(await p.isVisible('.notice'), 'first-run banner visible');
@@ -196,8 +193,8 @@ const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL:'
   ok((await p.textContent('#order-result')).includes('Type the fee'), 'needs miles too');
   await p.fill('[name=miles]', '1.5');
   let res = await p.textContent('#order-result');
-  ok(res.includes('£14.11/hr') && res.includes('Worth taking') && res.includes('14 min') && res.includes('estimated') && res.includes('from £12.00/hr, borderline from £10.00/hr'), 'order £4 / 1.5mi: ' + res.replace(/\s+/g, ' '));
-  await p.fill('[name=mins]', '10');
+  ok(res.includes('£14.11/hr') && res.includes('Worth taking') && res.includes('14 min') && res.includes('estimated') && (await p.textContent('#offer-calculation')).includes('from £12.00/hr, borderline from £10.00/hr'), 'order £4 / 1.5mi: ' + res.replace(/\s+/g, ' '));
+  await fillMinutes('10');
   res = await p.textContent('#order-result');
   ok(res.includes('Worth taking') && res.includes('from offer') && !res.includes('Time estimated'), 'minutes from offer used: ' + res.replace(/\s+/g, ' '));
   await p.fill('[name=mins]', ''); await p.fill('[name=fee]', '5'); await p.fill('[name=miles]', '3');
@@ -219,7 +216,7 @@ const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL:'
   await tap('[data-tab=order]');
   await p.fill('[name=fee]', '4'); await p.fill('[name=miles]', '1.5');
   res = await p.textContent('#order-result');
-  ok(res.includes('£18.27/hr') && res.includes('Borderline') && res.includes('11 min') && res.includes('from £20.00/hr, borderline from £15.00/hr'), 'order settings take effect: ' + res.replace(/\s+/g, ' '));
+  ok(res.includes('£18.27/hr') && res.includes('Borderline') && res.includes('11 min') && (await p.textContent('#offer-calculation')).includes('from £20.00/hr, borderline from £15.00/hr'), 'order settings take effect: ' + res.replace(/\s+/g, ' '));
   await tap('#gear');
   await p.fill('[name=goodPerHour]', '12'); await p.fill('[name=okPerHour]', '10'); await p.fill('[name=stopMins]', '8');
   await tap('[data-tab=home]');
@@ -236,10 +233,10 @@ const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL:'
   await tap('.sugg [data-new]');
   ok((await p.textContent('.picked')).includes("Nando's") && (await p.textContent('.picked')).includes('No waits timed yet'), 'new place picked');
   res = await p.textContent('#order-result');
-  ok(res.includes('8 min stops') && res.includes('16 min'), 'unknown restaurant uses general stop time: ' + res.replace(/\s+/g, ' '));
+  ok((await p.textContent('#offer-calculation')).includes('8 min stops') && res.includes('16 min'), 'unknown restaurant uses general stop time: ' + res.replace(/\s+/g, ' '));
   await tap('#take');
   ok((await p.textContent('.steps')).includes('✓ Offer') && (await p.textContent('.steps')).includes('2 Pickup'), 'pickup step');
-  ok((await p.textContent('main')).includes('First visit') && (await p.textContent('main')).includes('No parking saved yet'), 'first visit prompt');
+  ok((await p.textContent('main')).includes('First visit') && (await p.textContent('main')).includes('No parking spot saved'), 'first visit prompt');
   await tap('#spot'); await p.waitForTimeout(300);
   ok((await toast()).includes('Parking spot saved'), 'parking spot saved toast');
   const href = await p.getAttribute('#directions', 'href');
@@ -267,7 +264,7 @@ const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL:'
   ok((await p.textContent('.sugg')).includes('1 visit · avg wait 7 min') && (await p.textContent('.sugg')).includes('Easy'), 'known place suggested with wait and tag');
   await tap('.sugg [data-id]');
   res = await p.textContent('#order-result');
-  ok(res.includes("7 min avg wait at Nando's + 3 min parking & handover") && res.includes('18 min'), 'known restaurant uses its own wait: ' + res.replace(/\s+/g, ' '));
+  ok((await p.textContent('#offer-calculation')).includes("7 min avg wait at Nando's + 3 min parking & handover") && res.includes('18 min'), 'known restaurant uses its own wait: ' + res.replace(/\s+/g, ' '));
   await tap('#take');
   const pick = await p.textContent('main');
   ok(pick.includes('Free street bay') && pick.includes('1 hr max') && pick.includes('Bays on Mill St') && await p.isVisible('#directions'), 'known place shows parking info');
