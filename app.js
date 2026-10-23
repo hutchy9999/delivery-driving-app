@@ -289,7 +289,7 @@ document.addEventListener('change', (e) => {
 // ---------- Interactive profit charts ----------
 
 const CHART_DAYS = 14;
-const CH = 224, CL = 46, CR = 14, CT = 12, CB = 30;
+const CH = 200, CL = 46, CR = 14, CT = 12, CB = 30;
 let CW = 340;
 let chartSelection = null;
 let chartDragging = false;
@@ -352,6 +352,14 @@ function profitChartModel() {
 
 function chartCard() {
   const model = profitChartModel();
+  const periodButtons = `<div class="chart-tabs" role="group" aria-label="Profit graph period">
+    <button class="btn" type="button" data-chart-range="today" aria-pressed="${model.range === 'today'}">Today</button>
+    <button class="btn" type="button" data-chart-range="fortnight" aria-pressed="${model.range === 'fortnight'}">Last 2 weeks</button>
+  </div>`;
+  if (!model.hasData) return `<section class="card chart profit-chart" id="chart">${periodButtons}
+    <div class="chart-heading"><h2>Profit before tax</h2><span class="muted small">All platforms</span></div>
+    <div class="chart-empty"><b>${model.range === 'today' ? 'No shift recorded today' : 'No shifts in the last 2 weeks'}</b><p class="muted small">${model.range === 'today' ? 'Start a shift to see your progress. Completed deliveries will build your profit graph.' : 'Your saved daily profit will appear here as you record shifts.'}</p></div>
+  </section>`;
   CW = chartWidth();
   const { points } = model;
   const values = points.map((p) => p.profit);
@@ -382,20 +390,16 @@ function chartCard() {
   const active = store.active;
   const overnight = active && toLocalInput(active.start).slice(0, 10) !== toLocalInput(new Date()).slice(0, 10);
   return `<section class="card chart profit-chart" id="chart">
-    <div class="chart-tabs" role="group" aria-label="Profit graph period">
-      <button class="btn" type="button" data-chart-range="today" aria-pressed="${model.range === 'today'}">Today</button>
-      <button class="btn" type="button" data-chart-range="fortnight" aria-pressed="${model.range === 'fortnight'}">Last 2 weeks</button>
-    </div>
+    ${periodButtons}
     <div class="chart-heading"><h2>Profit before tax</h2><span class="chart-estimate">${model.estimated ? 'Estimated live' : 'Saved totals'}</span></div>
-    <div class="chart-headline"><div class="chart-total ${model.total < 0 ? 'neg' : ''}">${money(model.total)}</div><div>${model.range === 'today' && active ? `<b id="chart-clock">${duration((Date.now() - new Date(active.start)) / 3600000)}</b><small>on shift</small>` : model.range === 'fortnight' ? `<b>${model.count} days</b><small>worked / 14 days</small>` : ''}</div></div>
+    <div class="chart-headline"><div class="chart-total ${model.total < 0 ? 'neg' : ''}">${money(model.total)}</div><div>${model.range === 'fortnight' ? `<b>${model.count} days</b><small>worked / 14 days</small>` : ''}</div></div>
     <p class="muted small chart-status">All platforms · after ${model.estimated ? 'estimated expenses' : 'fuel, maintenance and insurance'}</p>
-    <div class="chart-axis-title">Profit (£)</div>
     <svg viewBox="0 0 ${CW} ${CH}" role="img" aria-label="${model.range === 'today' ? 'Cumulative profit by time' : 'Daily profit for the last 2 weeks'}. ${money(model.total)} ${model.estimated ? 'estimated ' : ''}profit before tax. Tap or drag to explore points.">
       ${grid}${labels}${trace}
       <line class="cross" id="cross" x1="0" x2="0" y1="${CT}" y2="${CH - CB}" visibility="hidden"/>
       <circle class="chart-marker" id="chart-marker" cx="0" cy="0" r="7" visibility="hidden"/>
     </svg>
-    <p class="muted small chart-x-title">${model.range === 'today' ? 'Time · completed deliveries and shift updates' : 'Date · daily profit'}</p>
+    <p class="muted small chart-x-title">${model.range === 'today' ? 'Time' : 'Date'}</p>
     <div class="chart-tools">
       <button type="button" class="btn chart-step" id="chart-previous" aria-label="Previous profit point"${!model.hasData ? ' disabled' : ''}>‹</button>
       <div class="chart-readout" id="chart-info" aria-live="polite">Your profit appears here as you record work.</div>
@@ -412,6 +416,13 @@ function chartCard() {
 
 function bindChart() {
   chartDragging = false;
+  document.querySelectorAll('[data-chart-range]').forEach((button) => {
+    button.onclick = () => {
+      const range = button.dataset.chartRange;
+      store.chartRange = range; chartSelection = null; refreshChart(true);
+      $(`[data-chart-range="${range}"]`).focus({ preventScroll: true });
+    };
+  });
   const model = profitChartModel();
   const svg = $('#chart svg');
   if (!svg) return;
@@ -435,8 +446,8 @@ function bindChart() {
     const marker = $('#chart-marker');
     marker.setAttribute('cx', cx); marker.setAttribute('cy', y(p)); marker.setAttribute('visibility', 'visible');
     $('#chart-info').innerHTML = model.range === 'today'
-      ? `<span>${timeLabel(p.at)} · ${esc(p.label)}</span><b>${money(p.profit)}</b><small>${p.estimated ? 'estimated ' : ''}profit before tax</small>`
-      : `<span>${dateLabel(p.date)}</span><b>${p.worked ? money(p.profit) : 'No shift'}</b><small>${p.worked ? (p.estimated ? 'estimated profit · ' : 'profit · ') + duration(p.hours) + ' worked' : 'No work recorded'}</small>`;
+      ? `<span>${timeLabel(p.at)} · ${esc(p.label)}</span><b>${money(p.profit)} <small>${p.estimated ? 'estimated ' : ''}profit</small></b>`
+      : `<span>${dateLabel(p.date)}${p.worked ? ' · ' + duration(p.hours) : ''}</span><b>${p.worked ? money(p.profit) + ` <small>${p.estimated ? 'estimated ' : ''}profit</small>` : 'No shift'}</b>`;
     $('#chart-position').textContent = model.range === 'today' ? `${money(p.earnings)} fees/earnings − ${money(p.costs)} ${p.estimated ? 'estimated ' : ''}costs` : `${at + 1} of ${points.length} days · tap or slide to explore`;
     $('#chart-previous').disabled = at === 0;
     $('#chart-next').disabled = at === points.length - 1;
@@ -454,13 +465,6 @@ function bindChart() {
   svg.addEventListener('pointercancel', () => { chartDragging = false; });
   $('#chart-previous').onclick = () => select(at - 1);
   $('#chart-next').onclick = () => select(at + 1);
-  document.querySelectorAll('[data-chart-range]').forEach((button) => {
-    button.onclick = () => {
-      const range = button.dataset.chartRange;
-      store.chartRange = range; chartSelection = null; refreshChart(true);
-      $(`[data-chart-range="${range}"]`).focus({ preventScroll: true });
-    };
-  });
   if (model.hasData) select(at);
 }
 
@@ -471,7 +475,7 @@ function refreshChart(force = false) {
     ? `[data-chart-range="${focused.dataset.chartRange}"]` : focused?.matches('summary') ? '.chart-method summary' : null;
   const explanationOpen = !!$('.chart-method')?.open;
   $('#chart').outerHTML = chartCard();
-  $('.chart-method').open = explanationOpen;
+  if ($('.chart-method')) $('.chart-method').open = explanationOpen;
   bindChart();
   if (focusSelector) $(focusSelector)?.focus({ preventScroll: true });
 }
@@ -481,6 +485,32 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) refr
 
 
 // ---------- Home ----------
+
+function hasUnfinishedOrder() {
+  const order = store.order;
+  return order.step !== 'offer' || !!order.acceptedAt;
+}
+
+function renderUnfinishedOrder(view) {
+  const order = store.order;
+  view.innerHTML = `<section class="card notice" id="unfinished-order">
+    <h2>Finish your current order first</h2>
+    ${platformBadge(order)}
+    <p>${order.restaurantName ? esc(order.restaurantName) + ' · ' : ''}Your order is still in progress. Record Delivered after handover, or cancel the order if it was abandoned, before ending or cancelling this shift.</p>
+    <a class="btn primary" href="#order">Return to current order</a>
+    <button class="btn" id="keep-shift">Keep shift running</button>
+  </section>`;
+  $('#keep-shift').onclick = () => go('#home');
+}
+
+document.addEventListener('click', (event) => {
+  const options = $('.shift-options[open]');
+  if (options && !options.contains(event.target)) options.open = false;
+});
+document.addEventListener('keydown', (event) => {
+  const options = $('.shift-options[open]');
+  if (event.key === 'Escape' && options) { options.open = false; $('summary', options).focus(); }
+});
 
 function summaryCard(label, shifts) {
   const t = sumResults(shifts.map(calcShift));
@@ -507,15 +537,16 @@ function renderHome(view) {
 
   if (active) {
     view.innerHTML = `
+      <div class="card active-shift compact-active">
+        <div class="active-heading"><div><b>On shift · <span id="clock">${duration((Date.now() - new Date(active.start)) / 3600000)}</span></b><small>Started ${timeLabel(active.start)} · all platforms</small></div><button class="btn danger-outline" id="end">End shift</button>
+          <details class="shift-options"><summary aria-label="Shift options">•••</summary><div class="shift-options-panel">${active.startOdo ? `<p class="small muted">Starting odometer: ${esc(active.startOdo)}</p>` : ''}<button class="btn link danger-outline" id="cancel">Cancel this shift</button></div></details>
+        </div>
+        ${hasUnfinishedOrder() ? '<a class="btn resume-order" href="#order">Continue current order →</a>' : ''}
+        ${longShiftNote(active)}
+      </div>
       ${settingsNote}
       ${platformSummary(todaysDeliveries(), 'Today', true)}
-      ${chartCard(shifts)}
-      <div class="card active-shift compact-active">
-        <div class="active-heading"><div><b>Shift in progress</b><small>Started ${timeLabel(active.start)} · all platforms${active.startOdo ? ` · odometer ${esc(active.startOdo)}` : ''}</small></div><button class="btn danger-outline" id="end">End shift</button></div>
-        <span class="small muted" id="clock">${duration((Date.now() - new Date(active.start)) / 3600000)}</span>
-        ${longShiftNote(active)}
-        <button class="btn link" id="cancel">Cancel this shift</button>
-      </div>`;
+      ${chartCard(shifts)}`;
     timer = setInterval(() => {
       const c = $('#clock');
       if (c) c.textContent = duration((Date.now() - new Date(active.start)) / 3600000);
@@ -524,6 +555,7 @@ function renderHome(view) {
     bindChart(shifts);
     $('#end').onclick = () => go('#end');
     $('#cancel').onclick = () => {
+      if (hasUnfinishedOrder()) return renderUnfinishedOrder(view);
       if (confirm('Cancel this shift? Nothing will be saved.')) {
         store.active = null;
         render();
@@ -540,18 +572,17 @@ function renderHome(view) {
   const lastOdo = shifts.length ? shifts[0].endOdo : '';
 
   view.innerHTML = `
+    <div class="card shift-start">
+      <button class="btn primary" id="start">Start shift</button>
+      <label class="field">
+        <span>Starting odometer <small>(optional)</small></span>
+        <input id="odo" type="number" inputmode="decimal" placeholder="${lastOdo ? 'Last: ' + esc(lastOdo) : 'e.g. 48210'}">
+      </label>
+    </div>
     ${settingsNote}
     ${platformSummary(todaysDeliveries(), 'Today', true)}
     ${chartCard(shifts)}
-    <div class="card">
-      <label class="field">
-        <span>Odometer now <small>(optional)</small></span>
-        <input id="odo" type="number" inputmode="decimal" placeholder="${lastOdo ? 'Last: ' + esc(lastOdo) : 'e.g. 48210'}">
-      </label>
-      <button class="btn primary huge" id="start">Start shift</button>
-    </div>
-    ${summaryCard('Today · all platforms', todays)}
-    ${summaryCard('This week · all platforms', weeks)}
+    ${shifts.length ? `<details class="card saved-summaries"><summary>Saved shift summaries</summary>${summaryCard('Today · all platforms', todays)}${summaryCard('This week · all platforms', weeks)}</details>` : ''}
     ${backupNote()}
     <a class="btn link" href="#add">Forgot to start? Add a past shift</a>`;
 
@@ -571,8 +602,9 @@ function renderShiftForm(view, mode, id) {
   if (mode === 'end') {
     const active = store.active;
     if (!active) return go('#home');
+    if (hasUnfinishedOrder()) return renderUnfinishedOrder(view);
     // A draft is kept while typing, so switching to Deliveroo to check a figure loses nothing.
-    const { timesEdited, ...draft } = active.draft || {};
+    const { timesEdited, endEdited, ...draft } = active.draft || {};
     shift = { id: active.id, start: active.start, end: new Date().toISOString(), startOdo: active.startOdo, endOdo: '', miles: '', earnings: '', note: '', ...draft, settings: store.settings };
   } else if (mode === 'edit') {
     shift = store.shifts.find((s) => s.id === id);
@@ -649,7 +681,8 @@ function renderShiftForm(view, mode, id) {
       const prev = store.active.draft || {};
       // Times are only kept if you changed them; otherwise Finished stays "now".
       const timesEdited = prev.timesEdited || e.target.name === 'start' || e.target.name === 'end';
-      const draft = { earnings, startOdo, endOdo, miles, note, timesEdited, ...(timesEdited ? { start, end } : {}) };
+      const endEdited = (prev.endEdited ?? !!prev.timesEdited) || e.target.name === 'end';
+      const draft = { earnings, startOdo, endOdo, miles, note, timesEdited, endEdited, ...(timesEdited ? { start, end } : {}) };
       store.active = { ...store.active, draft };
     });
   }
@@ -660,6 +693,21 @@ function renderShiftForm(view, mode, id) {
     e.preventDefault();
     const s = read();
     const fail = (msg) => { const el = $('#err'); el.textContent = msg; el.hidden = false; };
+    if (mode === 'end') {
+      if (!store.active || store.active.id !== shift.id) return fail('This shift is no longer active. Return to Shift to check it.');
+      if (hasUnfinishedOrder()) return fail('Your current order is unfinished. Open Order to complete or cancel it before ending this shift.');
+      // An untouched Finished field means now, rather than the minute when the
+      // form first opened. Explicit minute-level edits must still include every
+      // completed delivery linked to this shift.
+      if (!(store.active.draft?.endEdited ?? store.active.draft?.timesEdited)) s.end = new Date().toISOString();
+      const completed = store.deliveries.filter((d) => shift.id && d.shiftId === shift.id)
+        .map((d) => +new Date(d.completedAt)).filter(Number.isFinite);
+      const latest = completed.length ? Math.max(...completed) : null;
+      if (latest !== null && latest > +new Date(s.end)) {
+        if (latest >= +new Date(s.end) + 60000) return fail('The finish time is before your last completed delivery. Check Finished.');
+        s.end = new Date(latest).toISOString();
+      }
+    }
     if (s.earnings === '' || isNaN(+s.earnings) || +s.earnings < 0) return fail('Enter your total earnings.');
     if (s.miles === '' || isNaN(+s.miles) || +s.miles < 0) return fail('Enter your odometer readings or the miles driven.');
     if (s.startOdo && s.endOdo && +s.endOdo < +s.startOdo) return fail('Odometer end is lower than odometer start.');
@@ -987,7 +1035,7 @@ function renderOrder(view) {
   else renderOffer(view);
   const record = active ? order : { platformId: store.platform };
   view.insertAdjacentHTML('afterbegin', `<div class="order-platform-context">${platformBadge(record)}
-    ${active ? `<p class="muted small">Current order stays with ${esc(platformName(order.platformId, order.platformName))} when you switch views.</p>` : ''}</div>`);
+    ${active && store.platform !== 'all' && store.platform !== order.platformId ? `<p class="muted small">Current order: ${esc(platformName(order.platformId, order.platformName))}. The selector changes your view, not this order.</p>` : ''}</div>`);
 }
 
 function renderOffer(view) {
@@ -995,19 +1043,22 @@ function renderOffer(view) {
   view.innerHTML = `
     ${store.active ? '' : `<div class="card notice">Not on shift, so your time and insurance aren't being counted. <button class="btn" id="start-from-order">Start shift now</button></div>`}
     ${stepPills('offer')}
-    <div id="order-result" aria-live="polite"></div>
-    <form id="of" class="card" novalidate>
+    <form id="of" class="card offer-entry" novalidate>
       <div class="pair">
         <label class="field"><span>Fee (£)</span>
           <input name="fee" type="number" inputmode="decimal" step="0.01" min="0" placeholder="e.g. 4.50" value="${esc(o.fee)}"></label>
         <label class="field"><span>Miles</span>
           <input name="miles" type="number" inputmode="decimal" step="0.1" min="0" placeholder="e.g. 2.5" value="${esc(o.miles)}"></label>
       </div>
+      <div id="order-result" class="offer-preview" aria-live="polite"></div>
       <div id="offer-place"></div>
-      <label class="field"><span>Minutes <small>(optional, if the offer shows a time)</small></span>
-        <input name="mins" type="number" inputmode="numeric" min="0" placeholder="Leave blank to estimate" value="${esc(o.mins)}"></label>
       <button class="btn primary huge" type="button" id="take">Taking it → Pickup</button>
-      <button class="btn link" type="button" id="clear">Clear for next order</button>
+      <details class="offer-extra"${o.mins !== '' ? ' open' : ''}><summary>Offer time & calculation</summary>
+        <label class="field"><span>Minutes <small>(optional, if the offer shows a time)</small></span>
+          <input name="mins" type="number" inputmode="numeric" min="0" placeholder="Leave blank to estimate" value="${esc(o.mins)}"></label>
+        <p class="muted small" id="offer-calculation"></p>
+      </details>
+      <button class="btn link" type="button" id="clear">${o.acceptedAt ? 'Cancel this order' : 'Clear for next order'}</button>
     </form>`;
 
   const f = $('#of');
@@ -1020,7 +1071,8 @@ function renderOffer(view) {
     const fee = parseFloat(feeText), miles = parseFloat(milesText), mins = parseFloat(minsText);
     const r = feeText !== '' && milesText !== '' && fee >= 0 && miles >= 0 ? calcOrder(s, fee, miles, mins, wait) : null;
     if (!r) {
-      $('#order-result').innerHTML = `<div class="card center muted">Type the fee and miles from the offer.<br>Your £/hr appears here.</div>`;
+      $('#order-result').innerHTML = `<div class="offer-empty muted">Type the fee and miles.<br>Your estimated £/hr appears here.</div>`;
+      $('#offer-calculation').textContent = 'Leave Minutes blank to estimate time from mileage, your configured speed and restaurant wait.';
       return;
     }
     const [icon, word] = { good: ['✓', 'Worth taking'], ok: ['!', 'Borderline'], poor: ['✕', 'Not worth it'] }[r.grade];
@@ -1028,16 +1080,16 @@ function renderOffer(view) {
       ? `${Math.round(wait)} min avg wait at ${esc(place.name)} + ${num(s.handoverMins)} min parking & handover`
       : `${num(s.stopMins)} min stops`;
     $('#order-result').innerHTML = `
-      <div class="card order ${r.grade}">
-        <div class="big">${money(r.hourly)}<span>/hr profit</span></div>
-        <div class="verdict"><span class="verdict-icon" aria-hidden="true">${icon}</span>${word}</div>
+      <div class="offer-verdict ${r.grade}">
+        <div class="offer-verdict-heading"><div class="offer-rate">${money(r.hourly)}<small>/hr profit</small></div>
+        <div class="verdict"><span class="verdict-icon" aria-hidden="true">${icon}</span>${word}</div></div>
         <div class="row3">
           <div><b>${money(r.profit)}</b><small>profit</small></div>
           <div><b>${money(r.costs)}</b><small>costs</small></div>
           <div><b>${Math.round(r.mins)} min</b><small>${r.estimated ? 'estimated' : 'from offer'}</small></div>
         </div>
-        <p class="muted small center">${r.estimated ? `Time estimated: ${num(miles)} mi at ${num(s.townMph)} mph + ${stops}. ` : ''}Worth taking from ${money(s.goodPerHour)}/hr, borderline from ${money(s.okPerHour)}/hr</p>
       </div>`;
+    $('#offer-calculation').innerHTML = `${r.estimated ? `Time estimated: ${num(miles)} mi at ${num(s.townMph)} mph + ${stops}. ` : 'Uses the entered offer time. '}Worth taking from ${money(s.goodPerHour)}/hr, borderline from ${money(s.okPerHour)}/hr`;
   };
 
   const showPlace = () => {
@@ -1077,7 +1129,10 @@ function renderOffer(view) {
   };
   const startHere = $('#start-from-order');
   if (startHere) startHere.onclick = () => { store.active = { id: newId(), start: new Date().toISOString(), startOdo: '' }; toast('Shift started. Drive safe!'); render(); };
-  $('#clear').onclick = () => { store.order = { ...EMPTY_ORDER }; render(); };
+  $('#clear').onclick = () => {
+    if (store.order.acceptedAt && !confirm('Cancel this accepted order? No completed delivery will be saved.')) return;
+    store.order = { ...EMPTY_ORDER }; render();
+  };
   showPlace();
   update();
   if (store.order.fee === '') f.fee.focus();
@@ -1088,8 +1143,8 @@ function renderPickup(view) {
   view.innerHTML = `
     ${stepPills('pickup')}
     <div id="pickup-place"></div>
-    <button class="btn huge${place ? '' : ' primary'}" id="arrived">I've arrived</button>
-    <button class="btn link" id="back">Back to offer</button>`;
+    <button class="btn link" id="back">Back to offer</button>
+    <button class="btn link danger-outline" id="cancel-pickup">Cancel order</button>`;
 
   const slot = $('#pickup-place');
   if (!place) {
@@ -1100,20 +1155,25 @@ function renderPickup(view) {
     slot.innerHTML = `
       <div class="card">
         <div class="place-head"><div><h2 class="place-title">${esc(place.name)}</h2><span class="muted">${esc(place.address || place.area) || (place.waits.length ? '' : 'First visit')}</span></div>${easeTag(place)}</div>
+        <button class="btn primary huge" id="arrived">I've arrived</button>
         ${parkingLine(place)}
         ${place.note ? `<div class="note">📝 ${esc(place.note)}</div>` : ''}
         ${wait !== null ? `<div class="facts"><div><b>${Math.round(wait)} min</b><small>avg wait</small></div><div><b>${place.waits.length}</b><small>visit${place.waits.length > 1 ? 's' : ''}</small></div></div>` : ''}
         ${place.spot
-          ? `<a class="btn primary huge icon" id="directions" href="${directionsUrl(place.spot)}" target="_blank" rel="noopener">${PIN_ICON} Directions to parking</a>
+          ? `<a class="btn icon" id="directions" href="${directionsUrl(place.spot)}" target="_blank" rel="noopener">${PIN_ICON} Directions to parking</a>
              <button class="btn link" id="spot">Update parking spot to here</button>`
-          : `<p class="muted">No parking saved yet. Once you've parked, save the spot so next time the app can take you straight there.</p>
+          : `<p class="muted small">No parking spot saved. Save one once safely parked.</p>
              ${place.loc ? `<a class="btn icon" id="to-restaurant" href="${directionsUrl(place.loc)}" target="_blank" rel="noopener">${PIN_ICON} Directions to restaurant</a>` : ''}
-             <button class="btn primary huge icon" id="spot">${PIN_ICON} Save parking spot here</button>`}
+             <button class="btn icon" id="spot">${PIN_ICON} Save parking spot here</button>`}
       </div>`;
     $('#spot').onclick = () => saveSpot(place.id, render);
   }
+  if (!place) slot.insertAdjacentHTML('beforebegin', '<button class="btn primary huge" id="arrived">I\'ve arrived</button>');
   $('#arrived').onclick = () => { setOrder({ step: 'waiting', arrivedAt: new Date().toISOString() }); render(); };
   $('#back').onclick = () => { setOrder({ step: 'offer' }); render(); };
+  $('#cancel-pickup').onclick = () => {
+    if (confirm('Cancel this order? No completed delivery will be saved.')) { store.order = { ...EMPTY_ORDER }; render(); }
+  };
 }
 
 function renderWaiting(view) {

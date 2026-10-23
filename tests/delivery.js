@@ -116,7 +116,7 @@ const URL = 'http://localhost:8765/';
     await page.fill('[name=earnings]', '70');
     await page.fill('[name=miles]', '30');
     await page.fill('[name=start]', '2026-10-23T17:00');
-    await page.fill('[name=end]', '2026-10-23T21:00');
+    await page.fill('[name=end]', await page.evaluate(() => { const d = new Date(Date.now() + 60000); const pad = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`; }));
     await page.click('#f button[type=submit]');
     await page.waitForURL('**/#shift/*');
     assert.equal((await read('sp.shifts'))[0].id, active.id);
