@@ -179,7 +179,8 @@ const URL = 'http://localhost:8765/';
       localStorage['sp.deliveries'] = JSON.stringify([{ id: 'unlinked', fee: '99', collectedAt: new Date().toISOString(), completedAt: new Date().toISOString() }]);
     });
     await go('#home');
-    assert.ok((await summary()).includes('0 completed deliveries'));
+    assert.ok((await summary()).includes('1 completed delivery'), 'daily fee overview includes unlinked work today');
+    assert.ok(!(await page.locator('.chart-total').innerText()).includes('99'), 'unlinked delivery cannot inflate live shift profit');
     assert.deepEqual(errors, []);
     console.log('Platform integration passed: default/order, locked identities, shared tabs, daily totals, legacy data, Places, corrections, forms, custom providers, backups and offline reload.');
   } finally {
