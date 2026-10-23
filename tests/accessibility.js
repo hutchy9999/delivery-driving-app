@@ -28,6 +28,7 @@ const MIN = 48;
       ['order-picker', async () => { await p.fill('.picker-input', 'nand'); await p.waitForTimeout(600); }],
       ['pickup-new', async () => { await p.evaluate(() => { localStorage['sp.places'] = JSON.stringify([{ id: 'p1', name: "Nando's", area: '', note: '', parkType: '', parkLimit: '', ease: '', spot: null, waits: [] }]); localStorage['sp.order'] = JSON.stringify({ step: 'pickup', fee: '5', miles: '2', mins: '', placeId: 'p1' }); }); await p.goto('http://localhost:8765/#history'); await p.goto('http://localhost:8765/#order'); }],
       ['waiting', async () => { await p.click('#arrived'); }],
+      ['delivering', async () => { await p.click('#got'); }],
       ['pickup-known', async () => { await p.evaluate(() => { localStorage['sp.places'] = JSON.stringify([{ id: 'p1', name: "Nando's", area: 'High St', note: 'Bays on Mill St', parkType: 'street', parkLimit: '60', ease: 'tricky', spot: { lat: 51.5, lng: -0.12, accuracy: 10, savedAt: '2026-10-20T10:00:00Z' }, waits: [{ at: '2026-10-20T10:00:00Z', mins: 7 }] }]); localStorage['sp.order'] = JSON.stringify({ step: 'pickup', placeId: 'p1' }); }); await p.goto('http://localhost:8765/#history'); await p.goto('http://localhost:8765/#order'); }],
       ['places', async () => p.goto('http://localhost:8765/#places')],
       ['place', async () => p.goto('http://localhost:8765/#place/p1')],
@@ -61,4 +62,5 @@ const MIN = 48;
     }
   }
   await b.close();
+  if (Object.values(out).some((themes) => Object.values(themes).some((r) => r.axe.length || r.small.length || r.overflow))) process.exitCode = 1;
 })();

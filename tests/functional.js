@@ -255,7 +255,9 @@ const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL:'
   ok((await p.textContent('#wait-timer')).startsWith('07:'), 'timer survives the app closing');
   await tap('#got');
   ok((await toast()).includes("Saved: 7 min wait at Nando's"), 'wait saved toast');
-  ok((await p.textContent('.steps')).includes('1 Offer') && await p.inputValue('[name=fee]') === '', 'back to an empty offer');
+   ok(await p.isVisible('#delivered') && (await ls('sp.order')).fee === '5', 'food collected advances to delivery and keeps fee');
+   await tap('#delivered');
+   ok((await p.textContent('.steps')).includes('1 Offer') && await p.inputValue('[name=fee]') === '', 'delivered returns to an empty offer');
   ok((await ls('sp.places'))[0].waits.length === 1, 'one wait recorded');
   // Second order from the same place: uses its own wait
   await p.fill('[name=fee]', '5'); await p.fill('[name=miles]', '2'); await p.fill('.picker-input', 'nan');
@@ -277,7 +279,9 @@ const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL:'
   await tap('#arrived');
   ok(await p.isVisible('.picker-input'), 'waiting asks which restaurant if none chosen');
   await tap('#got');
-  ok((await toast()).includes('Ready for the next order'), 'got food without a place');
+   ok(await p.isVisible('#delivered'), 'got food without a place starts delivery');
+   await tap('#delivered');
+   ok((await toast()).includes('Ready for the next order'), 'delivered without a place');
   // Restaurant search (OpenStreetMap via Photon, mocked)
   await p.fill('[name=fee]', '6'); await p.fill('[name=miles]', '2');
   await p.fill('.picker-input', 'nand');
@@ -425,5 +429,6 @@ const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL:'
 
   ok(errors.length === 0, 'no JS errors: ' + errors.join('; '));
   console.log(`\n${pass} passed, ${fail} failed`);
+   if (fail) process.exitCode = 1;
   await b.close();
 })();

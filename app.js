@@ -2,7 +2,7 @@
 
 // ---------- Storage ----------
 
-const KEYS = { settings: 'sp.settings', shifts: 'sp.shifts', active: 'sp.active', places: 'sp.places', order: 'sp.order', area: 'sp.area', lastBackup: 'sp.lastBackup' };
+const KEYS = { settings: 'sp.settings', shifts: 'sp.shifts', deliveries: 'sp.deliveries', active: 'sp.active', places: 'sp.places', order: 'sp.order', area: 'sp.area', lastBackup: 'sp.lastBackup' };
 
 const DEFAULT_SETTINGS = {
   fuelPrice: 1.40,      // £ per litre
@@ -36,6 +36,8 @@ const store = {
   get hasSettings() { return localStorage.getItem(KEYS.settings) !== null; },
   get shifts() { return load(KEYS.shifts, []); },
   set shifts(v) { save(KEYS.shifts, v); },
+  get deliveries() { return load(KEYS.deliveries, []); },
+  set deliveries(v) { save(KEYS.deliveries, v); },
   get active() { return load(KEYS.active, null); },
   set active(v) { save(KEYS.active, v); },
   get places() { return load(KEYS.places, []); },
@@ -367,7 +369,7 @@ function renderHome(view) {
   bindChart(shifts);
   bindBackupNote();
   $('#start').onclick = () => {
-    store.active = { start: new Date().toISOString(), startOdo: $('#odo').value.trim() };
+    store.active = { id: newId(), start: new Date().toISOString(), startOdo: $('#odo').value.trim() };
     toast('Shift started. Drive safe!');
     render();
   };
@@ -382,7 +384,7 @@ function renderShiftForm(view, mode, id) {
     if (!active) return go('#home');
     // A draft is kept while typing, so switching to Deliveroo to check a figure loses nothing.
     const { timesEdited, ...draft } = active.draft || {};
-    shift = { start: active.start, end: new Date().toISOString(), startOdo: active.startOdo, endOdo: '', miles: '', earnings: '', note: '', ...draft, settings: store.settings };
+    shift = { id: active.id, start: active.start, end: new Date().toISOString(), startOdo: active.startOdo, endOdo: '', miles: '', earnings: '', note: '', ...draft, settings: store.settings };
   } else if (mode === 'edit') {
     shift = store.shifts.find((s) => s.id === id);
     if (!shift) return go('#history');
@@ -522,6 +524,7 @@ function renderShift(view, id) {
       ${line('Miles', num(r.miles))}
       <p class="muted small">Worked out with petrol at ${money(s.fuelPrice)}/L and ${num(s.mpg)} MPG.</p>
     </div>
+    ${deliveryHistory(store.deliveries.filter((d) => d.shiftId === shift.id))}
     <div class="actions">
       <button class="btn" id="edit">Edit</button>
       <button class="btn danger-outline" id="del">Delete</button>
@@ -767,17 +770,17 @@ function bindParkingEditor(root, id) {
   note.addEventListener('change', () => updatePlace(id, { note: note.value.trim() }));
 }
 
-// ---------- Order: offer → pickup → waiting ----------
+// ---------- Order: offer → pickup → waiting → deliver ----------
 
-const EMPTY_ORDER = { step: 'offer', fee: '', miles: '', mins: '', placeId: null, arrivedAt: null };
+const EMPTY_ORDER = { step: 'offer', fee: '', miles: '', mins: '', placeId: null, arrivedAt: null, collectedAt: null };
 
 function setOrder(changes) {
   store.order = { ...store.order, ...changes };
 }
 
 function stepPills(current) {
-  const steps = ['offer', 'pickup', 'waiting'];
-  const names = ['Offer', 'Pickup', 'Waiting'];
+  const steps = ['offer', 'pickup', 'waiting', 'deliver'];
+  const names = ['Offer', 'Pickup', 'Waiting', 'Deliver'];
   const at = steps.indexOf(current);
   return `<ol class="steps" aria-label="Order steps">${names.map((n, i) => i < at
     ? `<li class="done">✓ ${n}</li>`
@@ -788,6 +791,7 @@ function renderOrder(view) {
   const step = store.order.step;
   if (step === 'pickup') return renderPickup(view);
   if (step === 'waiting') return renderWaiting(view);
+  if (step === 'deliver') return renderDeliver(view);
   return renderOffer(view);
 }
 
@@ -862,9 +866,18 @@ function renderOffer(view) {
 
   f.addEventListener('input', (e) => { if (!e.target.classList.contains('picker-input')) update(); });
   f.onsubmit = (e) => e.preventDefault();
-  $('#take').onclick = () => { setOrder({ step: 'pickup' }); render(); };
+  $('#take').onclick = () => {
+    const active = store.active;
+    // Also give shifts started by an older app version a stable link.
+    if (active && !active.id) store.active = { ...active, id: newId() };
+    const order = store.order;
+    const place = getPlace(order.placeId);
+    setOrder({ step: 'pickup', id: order.id || newId(), acceptedAt: order.acceptedAt || new Date().toISOString(),
+      shiftId: order.shiftId || store.active?.id || null, restaurantName: place?.name || '', settings: order.settings || store.settings });
+    render();
+  };
   const startHere = $('#start-from-order');
-  if (startHere) startHere.onclick = () => { store.active = { start: new Date().toISOString(), startOdo: '' }; toast('Shift started. Drive safe!'); render(); };
+  if (startHere) startHere.onclick = () => { store.active = { id: newId(), start: new Date().toISOString(), startOdo: '' }; toast('Shift started. Drive safe!'); render(); };
   $('#clear').onclick = () => { store.order = { ...EMPTY_ORDER }; render(); };
   showPlace();
   update();
@@ -932,6 +945,7 @@ function renderWaiting(view) {
   }
 
   $('#got').onclick = () => {
+    if (store.order.step !== 'waiting') return;
     const current = getPlace(store.order.placeId);
     const mins = (Date.now() - new Date(o.arrivedAt)) / 60000;
     if (current && mins <= MAX_WAIT_MINS) {
@@ -940,9 +954,9 @@ function renderWaiting(view) {
     } else if (current) {
       toast(`Over ${MAX_WAIT_MINS} min, so the wait wasn't saved`);
     } else {
-      toast('Done. Ready for the next order');
+      toast('Food collected');
     }
-    store.order = { ...EMPTY_ORDER };
+    setOrder({ step: 'deliver', id: store.order.id || newId(), restaurantName: current?.name || store.order.restaurantName || '', collectedAt: new Date().toISOString() });
     render();
   };
   $('#cancel-order').onclick = () => {
@@ -950,6 +964,74 @@ function renderWaiting(view) {
     store.order = { ...EMPTY_ORDER };
     render();
   };
+}
+
+function renderDeliver(view) {
+  const o = store.order;
+  const place = getPlace(o.placeId);
+  const elapsed = () => duration(Math.max(0, Date.now() - new Date(o.collectedAt)) / 3600000);
+  view.innerHTML = `
+    ${stepPills('deliver')}
+    <div class="card center">
+      <h2>Delivery in progress</h2>
+      ${place || o.restaurantName ? `<p><b>${esc(place?.name || o.restaurantName)}</b></p>` : ''}
+      <p class="muted">Since collecting the food</p>
+      <div class="clock" id="delivery-timer" role="timer">${elapsed()}</div>
+      <button class="btn primary huge" id="delivered">Delivered</button>
+      <p class="muted small">Tap once the handover is finished and you're back in your car, safely parked.</p>
+    </div>
+    <div class="card">
+      <p class="muted small">Includes driving, parking, walking and handover. Your shift clock keeps counting between orders.</p>
+      ${o.fee !== '' ? `<div class="line"><span>Offer fee</span><b>${money(+o.fee)}</b></div>` : ''}
+      <div class="line"><span>Food collected</span><b>${timeLabel(o.collectedAt)}</b></div>
+    </div>
+    <p id="delivery-error" class="error" role="alert" hidden></p>
+    <button class="btn link" id="cancel-delivery">Cancel this delivery</button>`;
+  timer = setInterval(() => { const t = $('#delivery-timer'); if (t) t.textContent = elapsed(); }, 1000);
+  $('#delivered').onclick = () => {
+    if (store.order.step !== 'deliver') return;
+    const delivery = { ...store.order, id: o.id || newId(), restaurantName: place?.name || o.restaurantName || '',
+      completedAt: new Date().toISOString() };
+    delete delivery.step;
+    try {
+      // Save before clearing the active order; retrying cannot duplicate it.
+      store.deliveries = [...store.deliveries.filter((d) => d.id !== delivery.id), delivery];
+      store.order = { ...EMPTY_ORDER };
+    } catch {
+      const error = $('#delivery-error');
+      error.textContent = "Couldn't save this delivery. Free up storage and try again; keep this screen open.";
+      error.hidden = false;
+      return;
+    }
+    toast('Delivery saved. Ready for the next order');
+    render();
+  };
+  $('#cancel-delivery').onclick = () => {
+    if (!confirm('Cancel this delivery? No completed delivery will be saved. The restaurant wait already recorded will be kept.')) return;
+    store.order = { ...EMPTY_ORDER };
+    render();
+  };
+}
+
+// Completed orders keep their own restaurant name, even if a place is later deleted.
+function deliveryHistory(deliveries = store.deliveries) {
+  if (!deliveries.length) return '';
+  const interval = (a, b) => a && b ? duration(Math.max(0, new Date(b) - new Date(a)) / 3600000) : 'Not recorded';
+  const line = (label, value) => `<div class="line"><span>${label}</span><b>${value}</b></div>`;
+  return `<h2>Completed deliveries</h2>
+    <p class="muted small">Offer fees are recorded here. Enter final earnings, including tips, when you end your shift.</p>` +
+    [...deliveries].sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt)).map((d) => `
+      <details class="card delivery-record">
+        <summary><b>${esc(d.restaurantName || 'Delivery')}</b><small>${dateLabel(d.completedAt)} · ${timeLabel(d.completedAt)} · ${d.fee !== '' ? money(+d.fee) : 'Fee not entered'}</small></summary>
+        ${line('Accepted', d.acceptedAt ? timeLabel(d.acceptedAt) : 'Not recorded')}
+        ${line('At restaurant', d.arrivedAt ? timeLabel(d.arrivedAt) : 'Not recorded')}
+        ${line('Food collected', timeLabel(d.collectedAt))}
+        ${line('Delivered', timeLabel(d.completedAt))}
+        ${line('Restaurant wait', interval(d.arrivedAt, d.collectedAt))}
+        ${line('Collection to completion', interval(d.collectedAt, d.completedAt))}
+        ${line('Acceptance to completion', interval(d.acceptedAt, d.completedAt))}
+        ${d.miles !== '' ? line('Miles from offer', num(+d.miles)) : ''}
+      </details>`).join('');
 }
 
 // ---------- Places tab ----------
@@ -1056,6 +1138,7 @@ function renderHistory(view) {
   const shifts = store.shifts;
   if (!shifts.length) {
     view.innerHTML = `
+      ${deliveryHistory()}
       <div class="card"><p class="muted">No shifts yet. Start one from the Shift tab.</p></div>
       <button class="btn" onclick="location.hash='#add'">+ Add a past shift</button>`;
     return;
@@ -1068,7 +1151,7 @@ function renderHistory(view) {
     groups.get(key).push(s);
   }
 
-  let html = `<button class="btn" onclick="location.hash='#add'">+ Add a past shift</button>`;
+  let html = `<button class="btn" onclick="location.hash='#add'">+ Add a past shift</button>${deliveryHistory()}`;
   for (const [key, list] of groups) {
     const t = sumResults(list.map(calcShift));
     html += `
@@ -1230,7 +1313,7 @@ function exportCsv() {
 }
 
 function exportBackup() {
-  const data = { app: 'shift-profit', version: 1, exportedAt: new Date().toISOString(), settings: store.settings, shifts: store.shifts, active: store.active, places: store.places, area: store.area };
+  const data = { app: 'shift-profit', version: 2, exportedAt: new Date().toISOString(), settings: store.settings, shifts: store.shifts, deliveries: store.deliveries, order: store.order, active: store.active, places: store.places, area: store.area };
   download(`shift-profit-backup-${today()}.json`, JSON.stringify(data, null, 2), 'application/json');
   store.lastBackup = new Date().toISOString();
   toast('Backup saved to your Downloads folder');
@@ -1247,11 +1330,19 @@ async function importBackup(file) {
     const places = (Array.isArray(data.places) ? data.places : [])
       .filter((p) => p && p.id && p.name)
       .map((p) => ({ area: '', note: '', parkType: '', parkLimit: '', ease: '', spot: null, ...p, waits: Array.isArray(p.waits) ? p.waits : [] }));
+    const deliveries = (Array.isArray(data.deliveries) ? data.deliveries : [])
+      .filter((d) => d && d.id && d.collectedAt && !isNaN(new Date(d.collectedAt)) && d.completedAt && !isNaN(new Date(d.completedAt)));
     const count = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
-    if (!confirm(`Restore ${count(shifts.length, 'shift')} and ${count(places.length, 'place')} from this backup? This replaces what's on the phone now.`)) return;
+    if (!confirm(`Restore ${count(shifts.length, 'shift')} and ${count(places.length, 'place')} from this backup? It also contains ${count(deliveries.length, 'completed delivery')}. This replaces all records and the current order on the phone.`)) return;
     store.settings = { ...DEFAULT_SETTINGS, ...data.settings };
     store.shifts = shifts;
     store.places = places;
+    store.deliveries = deliveries;
+    const order = data.order;
+    store.order = order && ['offer', 'pickup', 'waiting', 'deliver'].includes(order.step) &&
+      (order.step !== 'deliver' || (order.collectedAt && !isNaN(new Date(order.collectedAt)))) &&
+      (order.step !== 'waiting' || (order.arrivedAt && !isNaN(new Date(order.arrivedAt))))
+      ? { ...EMPTY_ORDER, ...order } : { ...EMPTY_ORDER };
     if (data.area && isFinite(data.area.lat) && isFinite(data.area.lon)) store.area = data.area;
     store.active = data.active || null;
     toast('Backup restored');

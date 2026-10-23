@@ -32,6 +32,8 @@ const SCREENS = [
   ['order: pickup no place', seed({ 'sp.order': JSON.stringify({ step: 'pickup' }) }), '#order'],
   ['order: waiting + parking editor', seed({ 'sp.order': JSON.stringify({ step: 'waiting', placeId: 'n', arrivedAt: new Date().toISOString() }) }), '#order'],
   ['order: waiting no place', seed({ 'sp.order': JSON.stringify({ step: 'waiting', arrivedAt: new Date().toISOString() }) }), '#order'],
+  ['order: delivering', seed({ 'sp.order': JSON.stringify({ step: 'deliver', fee: '7', placeId: 'x', collectedAt: new Date().toISOString() }) }), '#order'],
+  ['history: completed delivery', seed({ 'sp.deliveries': JSON.stringify([{ id: 'd', restaurantName: 'Wok Express With A Really Long Restaurant Name', fee: '7', miles: '3', acceptedAt: new Date().toISOString(), arrivedAt: new Date().toISOString(), collectedAt: new Date().toISOString(), completedAt: new Date().toISOString() }]) }), '#history', async (p) => { await p.click('.delivery-record summary'); }],
   ['places', seed(), '#places'],
   ['places: search add', seed(), '#places', async (p) => { await p.fill('#place-search', 'Zzz'); }],
   ['places (empty)', { 'sp.settings': JSON.stringify(S) }, '#places'],
@@ -56,7 +58,7 @@ const SIZES = [['Pixel 7 (412px)', 412], ['small phone (320px)', 320], ['large t
       const where = `${name} [${scheme}, ${sizeName}]`;
       const r = await p.evaluate(() => {
         const vis = (e) => { const s = getComputedStyle(e); const r = e.getBoundingClientRect(); return s.visibility !== 'hidden' && s.display !== 'none' && r.width > 0 && r.height > 0 && e.type !== 'file'; };
-        const sel = 'a[href], button, input, textarea, select, [tabindex]:not([tabindex="-1"])';
+        const sel = 'a[href], button, input, textarea, select, summary, [tabindex]:not([tabindex="-1"])';
         const els = [...document.querySelectorAll(sel)].filter(vis);
         const name = (e) => (e.id ? '#' + e.id : '') || e.getAttribute('name') || e.getAttribute('aria-label') || e.textContent.trim().replace(/\s+/g, ' ').slice(0, 28) || e.tagName;
         const out = { count: els.length, small: [], close: [], inputFont: [], tinyText: [], clipped: [], overflow: document.documentElement.scrollWidth > innerWidth + 1 };
@@ -105,5 +107,6 @@ const SIZES = [['Pixel 7 (412px)', 412], ['small phone (320px)', 320], ['large t
   console.log(`${SCREENS.length} screens × 2 themes × 3 sizes = ${checks} checks, ${targets} interactive elements measured\n`);
   for (const [k, v] of issues) console.log(`• ${k}\n    on ${v.size}: ${[...v].slice(0, 3).join('; ')}${v.size > 3 ? ' …' : ''}`);
   if (!issues.size) console.log('No issues found');
+  if (issues.size) process.exitCode = 1;
   await b.close();
 })();
