@@ -2,7 +2,20 @@
 
 // ---------- Storage ----------
 
-const KEYS = { settings: 'sp.settings', shifts: 'sp.shifts', deliveries: 'sp.deliveries', active: 'sp.active', places: 'sp.places', order: 'sp.order', area: 'sp.area', lastBackup: 'sp.lastBackup' };
+const KEYS = { settings: 'sp.settings', shifts: 'sp.shifts', deliveries: 'sp.deliveries', active: 'sp.active', places: 'sp.places', order: 'sp.order', area: 'sp.area', lastBackup: 'sp.lastBackup', platforms: 'sp.platforms', platform: 'sp.platform' };
+
+const DEFAULT_PLATFORMS = [{ id: 'just-eat', name: 'Just Eat' }, { id: 'deliveroo', name: 'Deliveroo' }];
+
+function normalisePlatforms(value) {
+  const result = DEFAULT_PLATFORMS.map((p) => ({ ...p }));
+  for (const p of Array.isArray(value) ? value : []) {
+    if (!p || typeof p.id !== 'string' || !/^[a-z0-9-]{1,64}$/.test(p.id) || p.id === 'all' || typeof p.name !== 'string') continue;
+    const name = p.name.trim().slice(0, 40);
+    if (!name || name.toLowerCase() === 'all' || result.some((x) => x.id === p.id || x.name.toLowerCase() === name.toLowerCase())) continue;
+    result.push({ id: p.id, name });
+  }
+  return result;
+}
 
 const DEFAULT_SETTINGS = {
   fuelPrice: 1.40,      // £ per litre
@@ -48,6 +61,10 @@ const store = {
   set order(v) { save(KEYS.order, v); },
   get lastBackup() { return load(KEYS.lastBackup, null); },
   set lastBackup(v) { save(KEYS.lastBackup, v); },
+  get platforms() { return normalisePlatforms(load(KEYS.platforms, [])); },
+  set platforms(v) { save(KEYS.platforms, normalisePlatforms(v)); },
+  get platform() { const id = load(KEYS.platform, 'all'); return store.platforms.some((p) => p.id === id) ? id : 'all'; },
+  set platform(v) { save(KEYS.platform, v); },
 };
 
 // ---------- Formatting ----------
@@ -132,6 +149,65 @@ function profitClass(n) {
   return n < 0 ? 'neg' : 'pos';
 }
 
+// The selector is a view/next-order preference, never a running platform clock.
+function platformName(id, recordedName) {
+  if (id === 'all') return 'All platforms';
+  return recordedName || store.platforms.find((p) => p.id === id)?.name || 'Platform not recorded';
+}
+
+function platformBadge(record) {
+  const tone = record.platformId === 'just-eat' ? 'just-eat' : record.platformId === 'deliveroo' ? 'deliveroo' : record.platformId ? 'custom' : 'unknown';
+  return `<span class="platform-badge ${tone}">${esc(platformName(record.platformId, record.platformName))}</span>`;
+}
+
+function filterDeliveries(deliveries) {
+  return store.platform === 'all' ? deliveries : deliveries.filter((d) => d.platformId === store.platform);
+}
+
+function todaysDeliveries() {
+  const day = toLocalInput(new Date()).slice(0, 10);
+  return store.deliveries.filter((d) => toLocalInput(d.completedAt).slice(0, 10) === day);
+}
+
+function platformSummary(deliveries, title) {
+  const selected = store.platform;
+  const list = filterDeliveries(deliveries);
+  const fees = (items) => items.reduce((total, d) => total + (Number(d.fee) || 0), 0);
+  const row = (label, items) => `<div class="line"><span>${label} · ${items.length}</span><b>${money(fees(items))}</b></div>`;
+  const unlisted = new Map();
+  for (const d of list.filter((d) => !store.platforms.some((p) => p.id === d.platformId))) {
+    const key = d.platformId || '';
+    if (!unlisted.has(key)) unlisted.set(key, []);
+    unlisted.get(key).push(d);
+  }
+  return `<section class="card platform-summary" data-platform-summary>
+    <h2>${esc(title)} · ${esc(platformName(selected))}</h2>
+    <div class="big">${money(fees(list))}<span>offer fees</span></div>
+    <p class="muted small center">${list.length} completed ${list.length === 1 ? 'delivery' : 'deliveries'}</p>
+    ${selected === 'all' ? store.platforms.map((p) => row(platformBadge({ platformId: p.id }), list.filter((d) => d.platformId === p.id))).join('') : ''}
+    ${selected === 'all' ? [...unlisted.values()].map((items) => row(platformBadge(items[0]), items)).join('') : ''}
+    <p class="muted small">Recorded offer fees, before costs and tax. Final shift earnings may include tips and adjustments.</p>
+  </section>`;
+}
+
+function renderPlatformSelector() {
+  const selected = store.platform;
+  $('#platform-selector').innerHTML = [{ id: 'all', name: 'All' }, ...store.platforms].map((p) =>
+    `<button type="button" class="platform-pill ${p.id === 'just-eat' ? 'just-eat' : p.id === 'deliveroo' || p.id === 'all' ? 'deliveroo' : 'custom'}" data-platform="${esc(p.id)}" aria-pressed="${selected === p.id}">${selected === p.id ? '✓ ' : ''}${esc(p.name)}</button>`).join('');
+}
+
+function renderOrderOverview(view) {
+  view.innerHTML = `<p class="muted small">Choose a platform above to record an order.</p>
+    ${platformSummary(todaysDeliveries(), 'Today')}
+    ${deliveryHistory(todaysDeliveries().sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt)).slice(0, 5))}
+    <a class="btn" href="#history">View full history</a>`;
+}
+
+function platformPlaces() {
+  const ids = new Set(store.deliveries.filter((d) => d.platformId === store.platform).map((d) => d.placeId));
+  return store.places.filter((p) => ids.has(p.id) || (p.waits || []).some((w) => w.platformId === store.platform));
+}
+
 // ---------- Routing (hash based, so the Android back button works) ----------
 
 let timer = null;
@@ -153,6 +229,7 @@ function render() {
     else b.removeAttribute('aria-current');
   });
   $('#gear').classList.toggle('active', tab === 'settings');
+  renderPlatformSelector();
 
   switch (route) {
     case 'end': return renderShiftForm(view, 'end');
@@ -171,6 +248,27 @@ function render() {
 window.addEventListener('hashchange', render);
 document.querySelectorAll('.tab').forEach((b) => b.addEventListener('click', () => go('#' + b.dataset.tab)));
 $('#gear').addEventListener('click', () => go('#settings'));
+$('#platform-selector').addEventListener('click', (e) => {
+  const button = e.target.closest('[data-platform]');
+  if (!button) return;
+  store.platform = button.dataset.platform;
+  // These forms edit shared records; switching the view must not discard typing.
+  const route = location.hash.slice(1).split('/')[0];
+  if (['end', 'add', 'edit', 'settings', 'place'].includes(route)) renderPlatformSelector();
+  else render();
+});
+
+document.addEventListener('change', (e) => {
+  const select = e.target.closest('select[data-delivery-platform]');
+  if (!select) return;
+  const platform = store.platforms.find((p) => p.id === select.value);
+  store.deliveries = store.deliveries.map((d) => d.id === select.dataset.deliveryPlatform
+    ? { ...d, platformId: platform?.id || null, platformName: platform?.name || null } : d);
+  store.places = store.places.map((p) => ({ ...p, waits: (p.waits || []).map((w) => w.orderId === select.dataset.deliveryPlatform
+    ? { ...w, platformId: platform?.id || null } : w) }));
+  toast('Delivery platform saved');
+  render();
+});
 
 // ---------- Daily profit chart (last 14 days) ----------
 
@@ -321,6 +419,8 @@ function renderHome(view) {
   if (active) {
     view.innerHTML = `
       ${settingsNote}
+      ${platformSummary(store.deliveries.filter((d) => active.id && d.shiftId === active.id), 'This shift')}
+      <p class="muted small">All platforms · shared shift clock and profit</p>
       ${chartCard(shifts)}
       <div class="card active-shift">
         <p class="muted">On shift since ${timeLabel(active.start)}${active.startOdo ? ` · odometer ${esc(active.startOdo)}` : ''}</p>
@@ -353,6 +453,8 @@ function renderHome(view) {
 
   view.innerHTML = `
     ${settingsNote}
+    ${platformSummary(todaysDeliveries(), 'Today')}
+    <p class="muted small">All platforms · full shift profit, hours and mileage</p>
     ${chartCard(shifts)}
     <div class="card">
       <label class="field">
@@ -361,8 +463,8 @@ function renderHome(view) {
       </label>
       <button class="btn primary huge" id="start">Start shift</button>
     </div>
-    ${summaryCard('Today', todays)}
-    ${summaryCard('This week', weeks)}
+    ${summaryCard('Today · all platforms', todays)}
+    ${summaryCard('This week · all platforms', weeks)}
     ${backupNote()}
     <a class="btn link" href="#add">Forgot to start? Add a past shift</a>`;
 
@@ -502,6 +604,7 @@ function renderShift(view, id) {
 
   view.innerHTML = `
     <h2>${dateLabel(shift.start)} · ${timeLabel(shift.start)}–${timeLabel(shift.end)}</h2>
+    <p class="muted small">All platforms · full shift totals, including shared time and expenses</p>
     ${shift.note ? `<p class="muted">${esc(shift.note)}</p>` : ''}
     <div class="card">
       <div class="big ${profitClass(r.profitPerHour)}">${money(r.profitPerHour)}<span>/hr profit</span></div>
@@ -524,7 +627,7 @@ function renderShift(view, id) {
       ${line('Miles', num(r.miles))}
       <p class="muted small">Worked out with petrol at ${money(s.fuelPrice)}/L and ${num(s.mpg)} MPG.</p>
     </div>
-    ${deliveryHistory(store.deliveries.filter((d) => d.shiftId === shift.id))}
+    ${deliveryHistory(filterDeliveries(store.deliveries.filter((d) => d.shiftId === shift.id)))}
     <div class="actions">
       <button class="btn" id="edit">Edit</button>
       <button class="btn danger-outline" id="del">Delete</button>
@@ -788,11 +891,16 @@ function stepPills(current) {
 }
 
 function renderOrder(view) {
-  const step = store.order.step;
-  if (step === 'pickup') return renderPickup(view);
-  if (step === 'waiting') return renderWaiting(view);
-  if (step === 'deliver') return renderDeliver(view);
-  return renderOffer(view);
+  const order = store.order;
+  const active = order.step !== 'offer' || !!order.acceptedAt;
+  if (!active && store.platform === 'all') return renderOrderOverview(view);
+  if (order.step === 'pickup') renderPickup(view);
+  else if (order.step === 'waiting') renderWaiting(view);
+  else if (order.step === 'deliver') renderDeliver(view);
+  else renderOffer(view);
+  const record = active ? order : { platformId: store.platform };
+  view.insertAdjacentHTML('afterbegin', `<div class="order-platform-context">${platformBadge(record)}
+    ${active ? `<p class="muted small">Current order stays with ${esc(platformName(order.platformId, order.platformName))} when you switch views.</p>` : ''}</div>`);
 }
 
 function renderOffer(view) {
@@ -867,12 +975,16 @@ function renderOffer(view) {
   f.addEventListener('input', (e) => { if (!e.target.classList.contains('picker-input')) update(); });
   f.onsubmit = (e) => e.preventDefault();
   $('#take').onclick = () => {
+    const platform = store.platforms.find((p) => p.id === store.platform);
+    if (!store.order.acceptedAt && !platform) return;
     const active = store.active;
     // Also give shifts started by an older app version a stable link.
     if (active && !active.id) store.active = { ...active, id: newId() };
     const order = store.order;
     const place = getPlace(order.placeId);
     setOrder({ step: 'pickup', id: order.id || newId(), acceptedAt: order.acceptedAt || new Date().toISOString(),
+      platformId: order.acceptedAt ? order.platformId : platform.id,
+      platformName: order.acceptedAt ? order.platformName : platform.name,
       shiftId: order.shiftId || store.active?.id || null, restaurantName: place?.name || '', settings: order.settings || store.settings });
     render();
   };
@@ -946,17 +1058,18 @@ function renderWaiting(view) {
 
   $('#got').onclick = () => {
     if (store.order.step !== 'waiting') return;
+    const orderId = store.order.id || newId();
     const current = getPlace(store.order.placeId);
     const mins = (Date.now() - new Date(o.arrivedAt)) / 60000;
     if (current && mins <= MAX_WAIT_MINS) {
-      updatePlace(current.id, { waits: [...(current.waits || []), { at: new Date().toISOString(), mins: Math.round(mins * 10) / 10 }] });
+      updatePlace(current.id, { waits: [...(current.waits || []), { at: new Date().toISOString(), mins: Math.round(mins * 10) / 10, orderId, platformId: store.order.platformId || null }] });
       toast(`Saved: ${Math.max(1, Math.round(mins))} min wait at ${current.name}`);
     } else if (current) {
       toast(`Over ${MAX_WAIT_MINS} min, so the wait wasn't saved`);
     } else {
       toast('Food collected');
     }
-    setOrder({ step: 'deliver', id: store.order.id || newId(), restaurantName: current?.name || store.order.restaurantName || '', collectedAt: new Date().toISOString() });
+    setOrder({ step: 'deliver', id: orderId, restaurantName: current?.name || store.order.restaurantName || '', collectedAt: new Date().toISOString() });
     render();
   };
   $('#cancel-order').onclick = () => {
@@ -1022,7 +1135,14 @@ function deliveryHistory(deliveries = store.deliveries) {
     <p class="muted small">Offer fees are recorded here. Enter final earnings, including tips, when you end your shift.</p>` +
     [...deliveries].sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt)).map((d) => `
       <details class="card delivery-record">
-        <summary><b>${esc(d.restaurantName || 'Delivery')}</b><small>${dateLabel(d.completedAt)} · ${timeLabel(d.completedAt)} · ${d.fee !== '' ? money(+d.fee) : 'Fee not entered'}</small></summary>
+        <summary><b>${esc(d.restaurantName || 'Delivery')}</b> ${platformBadge(d)}<small>${dateLabel(d.completedAt)} · ${timeLabel(d.completedAt)} · ${d.fee !== '' ? money(+d.fee) : 'Fee not entered'}</small></summary>
+        <label class="field"><span>Delivery platform <small>(changes save automatically)</small></span>
+          <select data-delivery-platform="${esc(d.id)}">
+            <option value=""${!d.platformId ? ' selected' : ''}>Platform not recorded</option>
+            ${!store.platforms.some((p) => p.id === d.platformId) && d.platformId ? `<option value="${esc(d.platformId)}" selected>${esc(platformName(d.platformId, d.platformName))}</option>` : ''}
+            ${store.platforms.map((p) => `<option value="${esc(p.id)}"${d.platformId === p.id ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}
+          </select>
+        </label>
         ${line('Accepted', d.acceptedAt ? timeLabel(d.acceptedAt) : 'Not recorded')}
         ${line('At restaurant', d.arrivedAt ? timeLabel(d.arrivedAt) : 'Not recorded')}
         ${line('Food collected', timeLabel(d.collectedAt))}
@@ -1040,6 +1160,7 @@ let placesSort = 'visits';
 
 function renderPlaces(view) {
   view.innerHTML = `
+    ${store.platform !== 'all' ? `<p class="muted small">Collections recorded for ${esc(platformName(store.platform))}. Parking, notes and restaurant wait averages are shared.</p>` : ''}
     <div class="card">
       <label class="field"><span>Search your places</span>
         <input id="place-search" type="search" autocomplete="off" placeholder="e.g. Nando's"></label>
@@ -1053,7 +1174,7 @@ function renderPlaces(view) {
   const search = $('#place-search');
   const show = () => {
     const q = search.value.trim().toLowerCase();
-    const places = store.places
+    const places = (store.platform === 'all' ? store.places : platformPlaces())
       .filter((p) => `${p.name} ${p.area} ${p.address || ''}`.toLowerCase().includes(q))
       .sort(placesSort === 'slowest'
         ? (a, b) => (avgWait(b) ?? -1) - (avgWait(a) ?? -1)
@@ -1065,7 +1186,7 @@ function renderPlaces(view) {
           <a class="place-row" href="#place/${esc(p.id)}">
             <span><b>${placeName(p)}</b><small>${placeMeta(p)}${p.spot ? ' · 🅿️ spot saved' : ''}</small></span>${easeTag(p)}
           </a>`).join('') + add
-      : (q ? add : `<div class="card"><p class="muted">No places yet. They're added when you pick a restaurant on an order, or search above to add one.</p></div>`);
+      : (q ? add : `<div class="card"><p class="muted">${store.platform === 'all' ? "No places yet. They're added when you pick a restaurant on an order, or search above to add one." : 'No collections recorded for this platform yet. Choose All to see every saved place.'}</p></div>`);
     const b = $('#add-place');
     if (b) b.onclick = () => go('#place/' + addPlace(search.value).id);
   };
@@ -1084,6 +1205,7 @@ function renderPlace(view, id) {
   const waits = (p.waits || []).slice(-5).reverse();
   const wait = avgWait(p);
   view.innerHTML = `
+    <p class="muted small">Shared restaurant · parking, notes and wait averages apply across platforms</p>
     <div class="card">
       <label class="field"><span>Restaurant name</span><input name="name" type="text" value="${esc(p.name)}" maxlength="80"></label>
       <label class="field"><span>Area or street <small>(helps tell branches apart)</small></span><input name="area" type="text" value="${esc(p.area)}" maxlength="80" placeholder="e.g. High Street"></label>
@@ -1135,11 +1257,14 @@ function renderPlace(view, id) {
 // ---------- History ----------
 
 function renderHistory(view) {
-  const shifts = store.shifts;
+  const deliveries = filterDeliveries(store.deliveries);
+  const related = new Set(deliveries.map((d) => d.shiftId));
+  const shifts = store.platform === 'all' ? store.shifts : store.shifts.filter((s) => related.has(s.id));
+  const overview = platformSummary(todaysDeliveries(), 'Today');
   if (!shifts.length) {
     view.innerHTML = `
-      ${deliveryHistory()}
-      <div class="card"><p class="muted">No shifts yet. Start one from the Shift tab.</p></div>
+      ${overview}${deliveryHistory(deliveries)}
+      <div class="card"><p class="muted">${store.platform === 'all' ? 'No shifts yet. Start one from the Shift tab.' : `No linked shifts for ${esc(platformName(store.platform))} yet. Choose All to see every shift.`}</p></div>
       <button class="btn" onclick="location.hash='#add'">+ Add a past shift</button>`;
     return;
   }
@@ -1151,7 +1276,9 @@ function renderHistory(view) {
     groups.get(key).push(s);
   }
 
-  let html = `<button class="btn" onclick="location.hash='#add'">+ Add a past shift</button>${deliveryHistory()}`;
+  let html = `${overview}<button class="btn" onclick="location.hash='#add'">+ Add a past shift</button>${deliveryHistory(deliveries)}
+    <h2>All platforms · ${store.platform === 'all' ? 'shifts' : 'linked shifts'}</h2>
+    <p class="muted small">Full shift totals include shared waiting, mileage and expenses across platforms.</p>`;
   for (const [key, list] of groups) {
     const t = sumResults(list.map(calcShift));
     html += `
@@ -1190,6 +1317,16 @@ function renderSettings(view) {
     </label>`;
 
   view.innerHTML = `
+    <section class="card">
+      <h2>Delivery platforms</h2>
+      ${store.platforms.map((p) => `<div class="line"><b>${esc(p.name)}</b><span class="muted small">Enabled</span></div>`).join('')}
+      <p class="muted small">All always shows your combined overview. Add another platform here to give it its own pill.</p>
+      <form id="platform-form">
+        <label class="field"><span>New platform name</span><input name="platformName" maxlength="40" placeholder="e.g. Uber Eats" autocomplete="off" required></label>
+        <p id="platform-error" class="error" role="alert" hidden></p>
+        <button class="btn" type="submit">Add platform</button>
+      </form>
+    </section>
     <form id="sf" class="card" novalidate>
       <h2>Car & fuel</h2>
       ${field('fuelPrice', 'Petrol price (£ per litre)', '', '0.001')}
@@ -1225,6 +1362,20 @@ function renderSettings(view) {
       <button class="btn" id="restore">Restore from backup file</button>
       <input type="file" id="file" accept=".json,application/json" hidden>
     </div>`;
+
+  $('#platform-form').onsubmit = (e) => {
+    e.preventDefault();
+    const name = e.currentTarget.elements.platformName.value.trim();
+    const error = $('#platform-error');
+    if (!name || name.toLowerCase() === 'all' || store.platforms.some((p) => p.name.toLowerCase() === name.toLowerCase())) {
+      error.textContent = 'Enter a new platform name. All, Just Eat and Deliveroo are already available.';
+      error.hidden = false;
+      return;
+    }
+    store.platforms = [...store.platforms, { id: 'p-' + newId(), name }];
+    toast('Platform added');
+    render();
+  };
 
   const f = $('#sf');
   // A box left empty keeps its previous value rather than becoming 0.
@@ -1313,7 +1464,7 @@ function exportCsv() {
 }
 
 function exportBackup() {
-  const data = { app: 'shift-profit', version: 2, exportedAt: new Date().toISOString(), settings: store.settings, shifts: store.shifts, deliveries: store.deliveries, order: store.order, active: store.active, places: store.places, area: store.area };
+  const data = { app: 'shift-profit', version: 3, exportedAt: new Date().toISOString(), settings: store.settings, shifts: store.shifts, deliveries: store.deliveries, order: store.order, active: store.active, places: store.places, area: store.area, platforms: store.platforms, selectedPlatform: store.platform };
   download(`shift-profit-backup-${today()}.json`, JSON.stringify(data, null, 2), 'application/json');
   store.lastBackup = new Date().toISOString();
   toast('Backup saved to your Downloads folder');
@@ -1338,6 +1489,8 @@ async function importBackup(file) {
     store.shifts = shifts;
     store.places = places;
     store.deliveries = deliveries;
+    store.platforms = data.platforms;
+    store.platform = store.platforms.some((p) => p.id === data.selectedPlatform) ? data.selectedPlatform : 'all';
     const order = data.order;
     store.order = order && ['offer', 'pickup', 'waiting', 'deliver'].includes(order.step) &&
       (order.step !== 'deliver' || (order.collectedAt && !isNaN(new Date(order.collectedAt)))) &&
