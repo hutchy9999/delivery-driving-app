@@ -63,6 +63,58 @@ function sumResults(results) {
   return t;
 }
 
+// Build per-event profit, not a sum of order hourly-rate estimates. A live shift
+// uses completed offers' miles and full elapsed insurance. Saved shift totals
+// reconcile to actual earnings/miles; intermediate vehicle-cost allocations are
+// estimates. No timings are invented for shifts without delivery records.
+function profitTimeline(shifts, deliveries, active, settings, now = Date.now()) {
+  const events = [];
+  const finished = shifts.filter((s) => Number.isFinite(+new Date(s.start)) && Number.isFinite(+new Date(s.end)) && +new Date(s.end) <= now);
+  const sessions = [...finished.map((s) => ({ ...s, live: false }))];
+  if (active && !finished.some((s) => active.id && s.id === active.id)) sessions.push({ ...active, end: new Date(now).toISOString(), settings, live: true });
+  sessions.forEach((s, index) => {
+    const start = +new Date(s.start), end = +new Date(s.end);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start > now || end < start) return;
+    const config = s.settings || settings;
+    const jobs = s.id ? deliveries.filter((d) => d.shiftId === s.id && +new Date(d.completedAt) >= start && +new Date(d.completedAt) <= end)
+      .sort((a, b) => new Date(a.completedAt) - new Date(b.completedAt)) : [];
+    const milesOf = (d) => Math.max(0, Number(d.miles) || 0);
+    const offerMiles = jobs.reduce((total, d) => total + milesOf(d), 0);
+    const running = fuelCostPerMile(config) + (Number(config.maintPence) || 0) / 100;
+    const totalMiles = s.live ? offerMiles : Math.max(0, Number(s.miles) || 0);
+    let earnings = 0, miles = 0, incomplete = false;
+    const emit = (at, key, label, values) => events.push({ at, key: `${index}:${key}`, label, session: index, ...values });
+    emit(start, 'start', 'Shift started', { earnings: 0, vehicle: 0, insurance: 0, estimated: s.live, incomplete: false });
+    jobs.forEach((d, job) => {
+      earnings += Number(d.fee) || 0;
+      miles += milesOf(d);
+      if (d.fee === '' || d.fee == null || !Number.isFinite(Number(d.fee)) || d.miles === '' || d.miles == null || !Number.isFinite(Number(d.miles))) incomplete = true;
+      const at = +new Date(d.completedAt);
+      const portion = offerMiles > 0 ? miles / offerMiles : end > start ? (at - start) / (end - start) : 0;
+      emit(at, d.id || `job-${job}`, `Delivery ${job + 1}${d.restaurantName ? ' · ' + d.restaurantName : ''}`, {
+        earnings, vehicle: (s.live ? miles : totalMiles * portion) * running,
+        insurance: Math.max(0, at - start) / 3600000 * insurancePerHour(config), estimated: true, incomplete,
+      });
+    });
+    if (s.live) emit(end, 'now', 'Now · shift in progress', { earnings, vehicle: totalMiles * running,
+      insurance: Math.max(0, end - start) / 3600000 * insurancePerHour(config), estimated: true, incomplete });
+    else {
+      const result = calcShift({ ...s, settings: config });
+      emit(end, 'end', 'Shift saved · reconciled', { earnings: result.earnings, vehicle: result.fuel + result.maintenance,
+        insurance: result.insurance, estimated: false, incomplete: false });
+    }
+  });
+  const states = new Map();
+  return events.sort((a, b) => a.at - b.at || a.session - b.session).map((event) => {
+    states.set(event.session, event);
+    const values = [...states.values()];
+    const total = (key) => values.reduce((sum, value) => sum + value[key], 0);
+    const earnings = total('earnings'), vehicle = total('vehicle'), insurance = total('insurance');
+    return { ...event, earnings, vehicle, insurance, costs: vehicle + insurance, profit: earnings - vehicle - insurance,
+      estimated: values.some((value) => value.estimated), incomplete: values.some((value) => value.incomplete) };
+  });
+}
+
 if (typeof module !== 'undefined') {
-  module.exports = { LITRES_PER_UK_GALLON, insurancePerHour, fuelCostPerMile, calcShift, calcOrder, sumResults };
+  module.exports = { LITRES_PER_UK_GALLON, insurancePerHour, fuelCostPerMile, calcShift, calcOrder, sumResults, profitTimeline };
 }

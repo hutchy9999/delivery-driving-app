@@ -65,6 +65,8 @@ const store = {
   set platforms(v) { save(KEYS.platforms, normalisePlatforms(v)); },
   get platform() { const id = load(KEYS.platform, 'all'); return store.platforms.some((p) => p.id === id) ? id : 'all'; },
   set platform(v) { save(KEYS.platform, v); },
+  get chartRange() { return load('sp.chartRange', 'today') === 'fortnight' ? 'fortnight' : 'today'; },
+  set chartRange(v) { save('sp.chartRange', v); },
 };
 
 // ---------- Formatting ----------
@@ -169,7 +171,21 @@ function todaysDeliveries() {
   return store.deliveries.filter((d) => toLocalInput(d.completedAt).slice(0, 10) === day);
 }
 
-function platformSummary(deliveries, title) {
+function platformSummary(deliveries, title, compact = false) {
+  if (compact) {
+    const fees = (items) => items.reduce((total, d) => total + (Number(d.fee) || 0), 0);
+    const groups = store.platforms.map((p) => ({ ...p, items: deliveries.filter((d) => d.platformId === p.id) }));
+    const unlisted = new Map();
+    deliveries.filter((d) => !store.platforms.some((p) => p.id === d.platformId)).forEach((d) => {
+      const id = d.platformId || '';
+      if (!unlisted.has(id)) unlisted.set(id, { id, name: platformName(d.platformId, d.platformName), items: [] });
+      unlisted.get(id).items.push(d);
+    });
+    return `<section class="card compact-fees" data-platform-summary aria-label="Today's offer fees">
+      <div class="compact-total"><div><h2>Today · offer fees</h2><small>All platforms · ${deliveries.length} completed ${deliveries.length === 1 ? 'delivery' : 'deliveries'}</small></div><b>${money(fees(deliveries))}</b></div>
+      <div class="compact-breakdown">${[...groups, ...unlisted.values()].map((p) => `<div class="${store.platform === p.id ? 'selected-provider' : ''}">${platformBadge({ platformId: p.id || null, platformName: p.name })}<b>${money(fees(p.items))}</b></div>`).join('')}</div>
+    </section>`;
+  }
   const selected = store.platform;
   const list = filterDeliveries(deliveries);
   const fees = (items) => items.reduce((total, d) => total + (Number(d.fee) || 0), 0);
@@ -270,18 +286,16 @@ document.addEventListener('change', (e) => {
   render();
 });
 
-// ---------- Daily profit chart (last 14 days) ----------
+// ---------- Interactive profit charts ----------
 
 const CHART_DAYS = 14;
-// SVG height and margins (left margin fits the £ labels, right fits half a date).
-const CH = 190, CL = 48, CR = 22, CT = 10, CB = 28;
-// The SVG is drawn at the card's real width, so its 12px labels stay 12px on any
-// screen or text size. Card content = page width − page padding − card padding.
+const CH = 224, CL = 46, CR = 14, CT = 12, CB = 30;
 let CW = 340;
+let chartSelection = null;
+let chartDragging = false;
 const chartWidth = () => Math.max(200, Math.round(Math.min(window.innerWidth, 560) - 66));
-const chartX = (i) => CL + (i * (CW - CL - CR)) / (CHART_DAYS - 1);
+const shortDate = (d) => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 
-// One entry per calendar day, oldest first, ending today.
 function dailyTotals(shifts) {
   const days = [];
   const byKey = new Map();
@@ -289,107 +303,182 @@ function dailyTotals(shifts) {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
     d.setDate(d.getDate() - i);
-    const day = { date: d, key: toLocalInput(d).slice(0, 10), worked: false, profit: 0, fuel: 0, hours: 0 };
-    days.push(day);
-    byKey.set(day.key, day);
+    const day = { date: d, key: toLocalInput(d).slice(0, 10), worked: false, profit: 0, fuel: 0, hours: 0, estimated: false };
+    days.push(day); byKey.set(day.key, day);
   }
   for (const s of shifts) {
     const day = byKey.get(toLocalInput(s.start).slice(0, 10));
     if (!day) continue;
     const r = calcShift(s);
-    day.worked = true;
-    day.profit += r.profit;
-    day.fuel += r.fuel;
-    day.hours += r.hours;
+    day.worked = true; day.profit += r.profit; day.fuel += r.fuel; day.hours += r.hours;
+  }
+  const active = store.active;
+  if (active && !shifts.some((s) => active.id && s.id === active.id)) {
+    const day = byKey.get(toLocalInput(active.start).slice(0, 10));
+    const points = profitTimeline([], store.deliveries, active, store.settings);
+    if (day && points.length) {
+      const latest = points[points.length - 1];
+      day.worked = true; day.profit += latest.profit; day.estimated = true;
+      day.hours += Math.max(0, Date.now() - new Date(active.start)) / 3600000;
+    }
   }
   return days;
 }
 
-// A tick step giving at most 4 gridlines.
 function niceStep(range) {
-  for (const step of [5, 10, 20, 25, 50, 100, 200, 250, 500, 1000]) if (range / step <= 4) return step;
-  return 2500;
+  const rough = Math.max(range, 1) / 4;
+  const power = 10 ** Math.floor(Math.log10(rough));
+  return [1, 2, 2.5, 5, 10].find((n) => n * power >= rough) * power;
 }
 
-const shortDate = (d) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-
-function chartCard(shifts) {
-  const days = dailyTotals(shifts);
-  const worked = days.filter((d) => d.worked);
-  CW = chartWidth();
-  const W = CW, H = CH, L = CL, R = CR, T = CT, B = CB;
-  const values = days.map((d) => d.profit);
-  // An empty graph shows £0–£100 so it looks like a normal week.
-  const step = worked.length ? niceStep(Math.max(...values, 0) - Math.min(...values, 0) || 1) : 25;
-  const yMax = worked.length ? Math.max(step, Math.ceil(Math.max(...values, 0) / step) * step) : 100;
-  const yMin = Math.floor(Math.min(...values, 0) / step) * step;
-  const x = chartX;
-  const y = (v) => T + ((yMax - v) * (H - T - B)) / (yMax - yMin);
-
-  let grid = '';
-  for (let v = yMin; v <= yMax; v += step) {
-    grid += `<line class="${v === 0 ? 'zero' : 'grid'}" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/>
-      <text class="axis" x="${L - 6}" y="${y(v) + 4}" text-anchor="end">£${v}</text>`;
+function profitChartModel() {
+  const range = store.chartRange;
+  if (range === 'fortnight') {
+    const days = dailyTotals(store.shifts);
+    const worked = days.filter((d) => d.worked);
+    return { range, points: days.map((d, i) => ({ ...d, at: +d.date, xValue: i, label: dateLabel(d.date), earnings: null, vehicle: null, insurance: null })),
+      total: worked.reduce((sum, d) => sum + d.profit, 0), estimated: worked.some((d) => d.estimated), hasData: worked.length > 0,
+      hours: worked.reduce((sum, d) => sum + d.hours, 0), count: worked.length, xMin: 0, xMax: CHART_DAYS - 1 };
   }
-  // Label every 2nd day where there's room (every 3rd/4th on narrow screens),
-  // always including today on the right.
-  const gap = (W - L - R) / (CHART_DAYS - 1);
-  const every = [2, 3, 4, 7].find((n) => n * gap >= 46) || 7;
-  const xLabels = days.map((d, i) => ((CHART_DAYS - 1 - i) % every === 0
-    ? `<text class="axis" x="${x(i)}" y="${H - 8}" text-anchor="middle">${shortDate(d.date)}</text>` : '')).join('');
-  const line = worked.length
-    ? `<polyline class="line" points="${days.map((d, i) => `${x(i)},${y(d.profit)}`).join(' ')}"/>` +
-      days.map((d, i) => (d.worked ? `<circle class="dot" cx="${x(i)}" cy="${y(d.profit)}" r="4"/>` : '')).join('')
-    : `<text class="axis" x="${(L + W - R) / 2}" y="${T + (H - T - B) * 0.375 + 4}" text-anchor="middle">No shifts in the last 2 weeks</text>`;
-
-  const avg = (k) => worked.reduce((a, d) => a + d[k], 0) / worked.length;
-  const stat = (value, label) => `<div><b>${worked.length ? value : '–'}</b><small>${label}</small></div>`;
-  const total = worked.reduce((a, d) => a + d.profit, 0);
-  const summary = worked.length
-    ? `Daily profit for the last 2 weeks. ${worked.length} days worked, ${money(total)} profit in total.`
-    : 'Daily profit for the last 2 weeks. No shifts yet.';
-
-  return `
-    <div class="card chart" id="chart">
-      <h2>Daily profit before tax · last 2 weeks</h2>
-      <p class="muted small chart-info" id="chart-info" aria-live="polite">${worked.length ? 'Tap the graph to see a day' : '&nbsp;'}</p>
-      <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${summary}">
-        ${grid}${xLabels}
-        <line class="cross" id="cross" x1="0" x2="0" y1="${T}" y2="${H - B}" visibility="hidden"/>
-        ${line}
-      </svg>
-      <div class="row3">
-        ${stat(money(avg('profit')), 'avg profit / day')}
-        ${stat(money(avg('fuel')), 'avg fuel / day')}
-        ${stat(duration(avg('hours')), 'avg hours / day')}
-      </div>
-      <p class="muted small center">Averages are per day worked</p>
-    </div>`;
+  const todayKey = toLocalInput(new Date()).slice(0, 10);
+  const shifts = store.shifts.filter((s) => toLocalInput(s.start).slice(0, 10) === todayKey);
+  const points = profitTimeline(shifts, store.deliveries, store.active, store.settings).map((p) => ({ ...p, xValue: p.at, worked: true }));
+  const last = points[points.length - 1];
+  const firstAt = points.length ? points[0].at : new Date().setHours(0, 0, 0, 0);
+  const lastAt = last ? last.at : firstAt + 3600000;
+  return { range, points, total: last?.profit || 0, estimated: !!last?.estimated, incomplete: !!last?.incomplete,
+    hasData: points.length > 0, xMin: firstAt, xMax: Math.max(lastAt, firstAt + 60000) };
 }
 
-// Tap or drag across the graph to read off a day.
-function bindChart(shifts) {
+function chartCard() {
+  const model = profitChartModel();
+  CW = chartWidth();
+  const { points } = model;
+  const values = points.map((p) => p.profit);
+  const range = Math.max(0, ...values) - Math.min(0, ...values);
+  const step = model.hasData && range > 0 ? niceStep(range) : 25;
+  const yMin = Math.floor(Math.min(0, ...values) / step) * step;
+  const yMax = Math.max(yMin + step, Math.ceil(Math.max(0, ...values) / step) * step, range === 0 ? 100 : 0);
+  const x = (value) => CL + (value - model.xMin) / (model.xMax - model.xMin) * (CW - CL - CR);
+  const y = (value) => CT + (yMax - value) / (yMax - yMin) * (CH - CT - CB);
+  let grid = '';
+  for (let value = yMin; value <= yMax + step / 100; value += step) {
+    grid += `<line class="${Math.abs(value) < step / 100 ? 'zero' : 'grid'}" x1="${CL}" x2="${CW - CR}" y1="${y(value)}" y2="${y(value)}"/>
+      <text class="axis" x="${CL - 7}" y="${y(value) + 4}" text-anchor="end">${money(value).replace('.00', '')}</text>`;
+  }
+  let labels = '';
+  const ticks = CW < 280 ? 3 : 4;
+  for (let i = 0; i < ticks; i++) {
+    const value = model.xMin + i / (ticks - 1) * (model.xMax - model.xMin);
+    const label = model.range === 'today' ? timeLabel(value) : shortDate(points[Math.round(value)].date);
+    labels += `<text class="axis" x="${x(value)}" y="${CH - 8}" text-anchor="${i === 0 ? 'start' : i === ticks - 1 ? 'end' : 'middle'}">${label}</text>`;
+  }
+  const coordinates = points.map((p) => `${x(p.xValue)},${y(p.profit)}`).join(' ');
+  const trace = model.hasData ? `<defs><linearGradient id="profit-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--accent)" stop-opacity=".18"/><stop offset="100%" stop-color="var(--accent)" stop-opacity=".02"/></linearGradient></defs>
+    <polygon class="profit-area" points="${x(points[0].xValue)},${y(0)} ${coordinates} ${x(points[points.length - 1].xValue)},${y(0)}"/>
+    <polyline class="profit-line" points="${coordinates}"/>
+    ${points.map((p, i) => p.worked ? `<circle class="dot${p.estimated ? ' estimated-dot' : ''}" data-point="${i}" cx="${x(p.xValue)}" cy="${y(p.profit)}" r="4"/>` : '').join('')}`
+    : `<text class="axis" x="${(CL + CW - CR) / 2}" y="${CH / 2}" text-anchor="middle">${model.range === 'today' ? 'Start a shift to see your progress' : 'No shifts in the last 2 weeks'}</text>`;
+  const active = store.active;
+  const overnight = active && toLocalInput(active.start).slice(0, 10) !== toLocalInput(new Date()).slice(0, 10);
+  return `<section class="card chart profit-chart" id="chart">
+    <div class="chart-tabs" role="group" aria-label="Profit graph period">
+      <button class="btn" type="button" data-chart-range="today" aria-pressed="${model.range === 'today'}">Today</button>
+      <button class="btn" type="button" data-chart-range="fortnight" aria-pressed="${model.range === 'fortnight'}">Last 2 weeks</button>
+    </div>
+    <div class="chart-heading"><h2>Profit before tax</h2><span class="chart-estimate">${model.estimated ? 'Estimated live' : 'Saved totals'}</span></div>
+    <div class="chart-headline"><div class="chart-total ${model.total < 0 ? 'neg' : ''}">${money(model.total)}</div><div>${model.range === 'today' && active ? `<b id="chart-clock">${duration((Date.now() - new Date(active.start)) / 3600000)}</b><small>on shift</small>` : model.range === 'fortnight' ? `<b>${model.count} days</b><small>worked / 14 days</small>` : ''}</div></div>
+    <p class="muted small chart-status">All platforms · after ${model.estimated ? 'estimated expenses' : 'fuel, maintenance and insurance'}</p>
+    <div class="chart-axis-title">Profit (£)</div>
+    <svg viewBox="0 0 ${CW} ${CH}" role="img" aria-label="${model.range === 'today' ? 'Cumulative profit by time' : 'Daily profit for the last 2 weeks'}. ${money(model.total)} ${model.estimated ? 'estimated ' : ''}profit before tax. Tap or drag to explore points.">
+      ${grid}${labels}${trace}
+      <line class="cross" id="cross" x1="0" x2="0" y1="${CT}" y2="${CH - CB}" visibility="hidden"/>
+      <circle class="chart-marker" id="chart-marker" cx="0" cy="0" r="7" visibility="hidden"/>
+    </svg>
+    <p class="muted small chart-x-title">${model.range === 'today' ? 'Time · completed deliveries and shift updates' : 'Date · daily profit'}</p>
+    <div class="chart-tools">
+      <button type="button" class="btn chart-step" id="chart-previous" aria-label="Previous profit point"${!model.hasData ? ' disabled' : ''}>‹</button>
+      <div class="chart-readout" id="chart-info" aria-live="polite">Your profit appears here as you record work.</div>
+      <button type="button" class="btn chart-step" id="chart-next" aria-label="Next profit point"${!model.hasData ? ' disabled' : ''}>›</button>
+    </div>
+    <p class="muted small chart-position" id="chart-position">${model.hasData ? 'Tap or slide across the graph' : 'No recorded points yet'}</p>
+    ${model.range === 'fortnight' ? `<div class="row3"><div><b>${model.count}</b><small>days worked</small></div><div><b>${duration(model.hours)}</b><small>shift hours</small></div><div><b>${money(model.count ? model.total / model.count : 0)}</b><small>avg profit / day</small></div></div>` : ''}
+    <details class="chart-method"><summary>How this is estimated</summary><p class="muted small">${model.range === 'today'
+      ? 'Live estimates use completed offer fees and miles, plus insurance for all elapsed shift time. Unrecorded travel is not included. Saved shift totals reconcile to final earnings and mileage; between-job costs are estimated.'
+      : 'Daily totals are grouped by shift start date. Any shift still running is estimated.'} Costs use your configured fuel, maintenance and insurance allowances, before tax; depreciation is not included.</p></details>
+    ${model.incomplete ? '<p class="warn-note small">Missing offer fees or mileage: live profit is incomplete.</p>' : ''}${overnight && model.range === 'today' ? '<p class="muted small">Includes the current overnight shift from its start.</p>' : ''}
+  </section>`;
+}
+
+function bindChart() {
+  chartDragging = false;
+  const model = profitChartModel();
   const svg = $('#chart svg');
-  if (!svg || !shifts.length) return;
-  const days = dailyTotals(shifts);
-  if (!days.some((d) => d.worked)) return;
-  const pick = (e) => {
-    const box = svg.getBoundingClientRect();
-    const sx = ((e.clientX - box.left) / box.width) * CW;
-    const i = Math.max(0, Math.min(CHART_DAYS - 1, Math.round(((sx - CL) / (CW - CL - CR)) * (CHART_DAYS - 1))));
-    const d = days[i];
-    const cx = chartX(i);
-    const cross = $('#cross');
-    cross.setAttribute('x1', cx);
-    cross.setAttribute('x2', cx);
-    cross.setAttribute('visibility', 'visible');
-    $('#chart-info').innerHTML = `<b>${dateLabel(d.date)}</b> · ` + (d.worked
-      ? `${money(d.profit)} profit · ${money(d.fuel)} fuel · ${duration(d.hours)}`
-      : 'no shift');
+  if (!svg) return;
+  const points = model.points;
+  const x = (p) => CL + (p.xValue - model.xMin) / (model.xMax - model.xMin) * (CW - CL - CR);
+  const values = points.map((p) => p.profit);
+  const range = Math.max(0, ...values) - Math.min(0, ...values);
+  const step = model.hasData && range > 0 ? niceStep(range) : 25;
+  const yMin = Math.floor(Math.min(0, ...values) / step) * step;
+  const yMax = Math.max(yMin + step, Math.ceil(Math.max(0, ...values) / step) * step, range === 0 ? 100 : 0);
+  const y = (p) => CT + (yMax - p.profit) / (yMax - yMin) * (CH - CT - CB);
+  let at = Math.max(0, points.findIndex((p) => chartSelection && p.key === chartSelection.key && model.range === chartSelection.range));
+  if (!chartSelection || chartSelection.range !== model.range || !points.some((p) => p.key === chartSelection.key)) at = Math.max(0, points.length - 1);
+  const select = (index) => {
+    if (!model.hasData) return;
+    at = Math.max(0, Math.min(points.length - 1, index));
+    const p = points[at];
+    chartSelection = { range: model.range, key: p.key };
+    const cx = x(p);
+    $('#cross').setAttribute('x1', cx); $('#cross').setAttribute('x2', cx); $('#cross').setAttribute('visibility', 'visible');
+    const marker = $('#chart-marker');
+    marker.setAttribute('cx', cx); marker.setAttribute('cy', y(p)); marker.setAttribute('visibility', 'visible');
+    $('#chart-info').innerHTML = model.range === 'today'
+      ? `<span>${timeLabel(p.at)} · ${esc(p.label)}</span><b>${money(p.profit)}</b><small>${p.estimated ? 'estimated ' : ''}profit before tax</small>`
+      : `<span>${dateLabel(p.date)}</span><b>${p.worked ? money(p.profit) : 'No shift'}</b><small>${p.worked ? (p.estimated ? 'estimated profit · ' : 'profit · ') + duration(p.hours) + ' worked' : 'No work recorded'}</small>`;
+    $('#chart-position').textContent = model.range === 'today' ? `${money(p.earnings)} fees/earnings − ${money(p.costs)} ${p.estimated ? 'estimated ' : ''}costs` : `${at + 1} of ${points.length} days · tap or slide to explore`;
+    $('#chart-previous').disabled = at === 0;
+    $('#chart-next').disabled = at === points.length - 1;
   };
-  svg.addEventListener('pointerdown', pick);
-  svg.addEventListener('pointermove', (e) => { if (e.buttons || e.pointerType === 'mouse') pick(e); });
+  const pick = (event) => {
+    const box = svg.getBoundingClientRect();
+    const target = (event.clientX - box.left) / box.width * CW;
+    let nearest = 0;
+    points.forEach((point, index) => { if (Math.abs(x(point) - target) <= Math.abs(x(points[nearest]) - target)) nearest = index; });
+    select(nearest);
+  };
+  svg.addEventListener('pointerdown', (event) => { chartDragging = true; svg.setPointerCapture?.(event.pointerId); if (model.hasData) pick(event); });
+  svg.addEventListener('pointermove', (event) => { if (model.hasData && (chartDragging || event.pointerType === 'mouse')) pick(event); });
+  svg.addEventListener('pointerup', () => { chartDragging = false; });
+  svg.addEventListener('pointercancel', () => { chartDragging = false; });
+  $('#chart-previous').onclick = () => select(at - 1);
+  $('#chart-next').onclick = () => select(at + 1);
+  document.querySelectorAll('[data-chart-range]').forEach((button) => {
+    button.onclick = () => {
+      const range = button.dataset.chartRange;
+      store.chartRange = range; chartSelection = null; refreshChart(true);
+      $(`[data-chart-range="${range}"]`).focus({ preventScroll: true });
+    };
+  });
+  if (model.hasData) select(at);
 }
+
+function refreshChart(force = false) {
+  if (!$('#chart') || (!force && chartDragging)) return;
+  const focused = document.activeElement?.closest('#chart') ? document.activeElement : null;
+  const focusSelector = focused?.id ? `#${focused.id}` : focused?.dataset.chartRange
+    ? `[data-chart-range="${focused.dataset.chartRange}"]` : focused?.matches('summary') ? '.chart-method summary' : null;
+  const explanationOpen = !!$('.chart-method')?.open;
+  $('#chart').outerHTML = chartCard();
+  $('.chart-method').open = explanationOpen;
+  bindChart();
+  if (focusSelector) $(focusSelector)?.focus({ preventScroll: true });
+}
+
+window.addEventListener('resize', () => { if ($('#chart')) refreshChart(true); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshChart(); });
+
 
 // ---------- Home ----------
 
@@ -419,19 +508,18 @@ function renderHome(view) {
   if (active) {
     view.innerHTML = `
       ${settingsNote}
-      ${platformSummary(store.deliveries.filter((d) => active.id && d.shiftId === active.id), 'This shift')}
-      <p class="muted small">All platforms · shared shift clock and profit</p>
+      ${platformSummary(todaysDeliveries(), 'Today', true)}
       ${chartCard(shifts)}
-      <div class="card active-shift">
-        <p class="muted">On shift since ${timeLabel(active.start)}${active.startOdo ? ` · odometer ${esc(active.startOdo)}` : ''}</p>
-        <div class="clock" id="clock">${duration((Date.now() - new Date(active.start)) / 3600000)}</div>
+      <div class="card active-shift compact-active">
+        <div class="active-heading"><div><b>Shift in progress</b><small>Started ${timeLabel(active.start)} · all platforms${active.startOdo ? ` · odometer ${esc(active.startOdo)}` : ''}</small></div><button class="btn danger-outline" id="end">End shift</button></div>
+        <span class="small muted" id="clock">${duration((Date.now() - new Date(active.start)) / 3600000)}</span>
         ${longShiftNote(active)}
-        <button class="btn primary huge danger" id="end">End shift</button>
         <button class="btn link" id="cancel">Cancel this shift</button>
       </div>`;
     timer = setInterval(() => {
       const c = $('#clock');
       if (c) c.textContent = duration((Date.now() - new Date(active.start)) / 3600000);
+      refreshChart();
     }, 15000);
     bindChart(shifts);
     $('#end').onclick = () => go('#end');
@@ -453,8 +541,7 @@ function renderHome(view) {
 
   view.innerHTML = `
     ${settingsNote}
-    ${platformSummary(todaysDeliveries(), 'Today')}
-    <p class="muted small">All platforms · full shift profit, hours and mileage</p>
+    ${platformSummary(todaysDeliveries(), 'Today', true)}
     ${chartCard(shifts)}
     <div class="card">
       <label class="field">

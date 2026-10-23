@@ -22,6 +22,8 @@ const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL:'
   await p.goto(URL);
   // 0. chart shows from the start, empty
   ok(await p.isVisible('#chart svg'), 'chart visible with no data');
+  ok(await p.getAttribute('[data-chart-range="today"]', 'aria-pressed') === 'true', 'Today is default');
+  await tap('[data-chart-range="fortnight"]');
   ok((await p.textContent('#chart')).includes('No shifts in the last 2 weeks'), 'empty chart message');
   const axis = await p.$$eval('#chart .axis', (ts) => ts.map((t) => ({ text: t.textContent, box: t.getBoundingClientRect() })));
   const dates = axis.filter((t) => /\d+ \w{3}$/.test(t.text));
@@ -131,12 +133,12 @@ const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL:'
   ok(await p.evaluate(() => scrollY) === 0, 'new screen opens at the top');
   ok(await p.locator('#chart .dot').count() === 1, 'chart plots today');
   const stats = (await p.textContent('#chart .row3')).replace(/\s+/g, ' ');
-  ok(stats.includes('£66.45') && stats.includes('£7.25') && stats.includes('5h 00m'), 'chart averages: ' + stats);
+  ok(stats.includes('£66.45') && stats.includes('days worked') && stats.includes('5h 00m'), 'chart summary: ' + stats);
   const cb = await p.locator('#chart svg').boundingBox();
   await p.mouse.click(cb.x + cb.width - 4, cb.y + cb.height / 2);
-  ok((await p.textContent('#chart-info')).includes('£66.45 profit'), 'tapping today shows its profit: ' + await p.textContent('#chart-info'));
+  ok((await p.textContent('#chart-info')).includes('£66.45') && (await p.textContent('#chart-info')).includes('profit'), 'tapping today shows its profit: ' + await p.textContent('#chart-info'));
   await p.mouse.click(cb.x + cb.width * 0.2, cb.y + cb.height / 2);
-  ok((await p.textContent('#chart-info')).includes('no shift'), 'tapping an empty day says no shift');
+  ok((await p.textContent('#chart-info')).includes('No shift'), 'tapping an empty day says no shift');
 
   // 9. add a past shift (miles typed, no odometer), different week
   await tap('a.btn.link[href="#add"]'); ok(await hash() === '#add', 'add link from home');
