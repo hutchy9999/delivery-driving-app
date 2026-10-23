@@ -294,3 +294,40 @@ a.btn.link { text-decoration: underline; }
 
 .warn-note { background: var(--notice); border-radius: 12px; padding: 12px; margin: 0 0 12px; text-align: left; }
 .card.notice .btn { margin: 10px 0 0; }
+
+/* One app-wide platform view; accepted orders keep their own platform. */
+.platform-selector {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px;
+  max-width: 560px; margin: 0 auto; padding: 8px 16px 4px;
+}
+.platform-pill {
+  font: inherit; font-size: 15px; font-weight: 600; min-height: 48px; min-width: 0;
+  padding: 8px 4px; border: 1px solid var(--border); border-radius: 999px;
+  background: var(--card); color: var(--text); overflow-wrap: anywhere;
+  cursor: pointer; touch-action: manipulation;
+}
+.platform-pill[aria-pressed="true"] { border: 2px solid var(--accent); background: var(--accent-soft); color: var(--accent-on-soft); }
+.platform-pill.just-eat[aria-pressed="true"] { border-color: #9c3e00; background: #fff0e4; color: #9c3e00; }
+.platform-pill.custom[aria-pressed="true"] { border-color: #5b478e; background: #eee8fb; color: #5b478e; }
+.platform-pill:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.platform-pill:active { transform: scale(.98); }
+.platform-badge { display: inline-block; max-width: 100%; padding: 4px 10px; border-radius: 999px; font-size: 13px; font-weight: 700; overflow-wrap: anywhere; }
+.platform-badge.just-eat { background: #fff0e4; color: #9c3e00; }
+.platform-badge.deliveroo { background: var(--accent-soft); color: var(--accent-on-soft); }
+.platform-badge.custom { background: #eee8fb; color: #5b478e; }
+.platform-badge.unknown { background: var(--bg); color: var(--muted); }
+.order-platform-context { margin-bottom: 12px; }
+.order-platform-context p { margin: 6px 0 0; }
+.platform-summary .line { align-items: center; gap: 8px; }
+.platform-summary .line > span { min-width: 0; }
+.platform-summary .line > b { white-space: nowrap; }
+.delivery-record summary .platform-badge { margin: 4px 0; }
+.delivery-record select { width: 100%; min-height: 48px; font: inherit; font-size: 16px; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg); color: var(--text); }
+.delivery-record select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+@media (max-width: 360px) { .platform-pill { font-size: 14px; } }
+@media (prefers-color-scheme: dark) {
+  .platform-pill.just-eat[aria-pressed="true"] { border-color: #ffb47c; background: #3e291e; color: #ffb47c; }
+  .platform-badge.just-eat { background: #3e291e; color: #ffb47c; }
+  .platform-pill.custom[aria-pressed="true"] { border-color: #cbb6ff; background: #30263f; color: #cbb6ff; }
+  .platform-badge.custom { background: #30263f; color: #cbb6ff; }
+}

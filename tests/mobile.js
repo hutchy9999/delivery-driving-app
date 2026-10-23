@@ -5,13 +5,13 @@ const { mockPhoton } = require('./photon-mock');
 const AXE = fs.readFileSync(require.resolve('axe-core/axe.min.js'), 'utf8');
 const U = 'http://localhost:8765/';
 const S = { fuelPrice: 1.7, mpg: 32, maintPence: 5, insurancePerHour: 1.16, goodPerHour: 12, okPerHour: 10, townMph: 15, stopMins: 8, handoverMins: 3 };
-const w = (n, m) => Array.from({ length: n }, (_, i) => ({ at: new Date(Date.now() - i * 864e5).toISOString(), mins: m }));
+const w = (n, m) => Array.from({ length: n }, (_, i) => ({ at: new Date(Date.now() - i * 864e5).toISOString(), mins: m, platformId: 'just-eat' }));
 const PLACES = [
   { id: 'n', name: "Nando's", area: 'High Street', note: "Bays on Mill St, 1 min walk. Don't stop out front.", parkType: 'street', parkLimit: '60', ease: 'easy', spot: { lat: 51.5, lng: -0.12, accuracy: 8, savedAt: new Date().toISOString() }, waits: w(6, 7) },
   { id: 'x', name: 'Wok Express With A Really Long Restaurant Name', area: 'Station Road Industrial Estate', note: '', parkType: '', parkLimit: '', ease: 'avoid', spot: null, waits: [] }];
 const SHIFTS = [0, 1, 3, 9].map((d, i) => { const s = new Date(); s.setDate(s.getDate() - d); s.setHours(11, 0, 0, 0);
   return { id: 's' + i, start: s.toISOString(), end: new Date(+s + 5 * 3600e3).toISOString(), startOdo: '100', endOdo: '130', miles: 30, earnings: 70 + i * 5, note: i ? '' : 'rainy Friday with a long note here', settings: S }; });
-const seed = (extra = {}) => ({ 'sp.settings': JSON.stringify(S), 'sp.shifts': JSON.stringify(SHIFTS), 'sp.places': JSON.stringify(PLACES), ...extra });
+const seed = (extra = {}) => ({ 'sp.settings': JSON.stringify(S), 'sp.platform': JSON.stringify('just-eat'), 'sp.shifts': JSON.stringify(SHIFTS), 'sp.places': JSON.stringify(PLACES), ...extra });
 const SCREENS = [
   ['first run (empty)', null, '#home'],
   ['shift: idle + graph', seed(), '#home', async (p) => { const b = await p.locator('#chart svg').boundingBox(); await p.mouse.click(b.x + b.width - 5, b.y + 50); }],
@@ -24,6 +24,9 @@ const SCREENS = [
   ['history', seed(), '#history'],
   ['history (empty)', { 'sp.settings': JSON.stringify(S) }, '#history'],
   ['order: offer empty', seed(), '#order'],
+  ['order: all overview', seed({ 'sp.platform': JSON.stringify('all') }), '#order'],
+  ['platform: long custom name', seed({ 'sp.platforms': JSON.stringify([{ id: 'p-long', name: 'An exceptionally long delivery platform name' }]), 'sp.platform': JSON.stringify('p-long') }), '#order'],
+  ['settings: duplicate platform', seed(), '#settings', async (p) => { await p.fill('[name=platformName]', 'All'); await p.click('#platform-form button'); }],
   ['order: offer + picker open', seed(), '#order', async (p) => { await p.fill('[name=fee]', '5'); await p.fill('[name=miles]', '2'); await p.fill('.picker-input', 'n'); }],
   ['order: search results', seed(), '#order', async (p) => { await p.fill('.picker-input', 'nand'); await p.waitForTimeout(600); }],
   ['order: offer + place picked', seed({ 'sp.order': JSON.stringify({ step: 'offer', fee: '5', miles: '2', placeId: 'n' }) }), '#order'],
@@ -33,7 +36,7 @@ const SCREENS = [
   ['order: waiting + parking editor', seed({ 'sp.order': JSON.stringify({ step: 'waiting', placeId: 'n', arrivedAt: new Date().toISOString() }) }), '#order'],
   ['order: waiting no place', seed({ 'sp.order': JSON.stringify({ step: 'waiting', arrivedAt: new Date().toISOString() }) }), '#order'],
   ['order: delivering', seed({ 'sp.order': JSON.stringify({ step: 'deliver', fee: '7', placeId: 'x', collectedAt: new Date().toISOString() }) }), '#order'],
-  ['history: completed delivery', seed({ 'sp.deliveries': JSON.stringify([{ id: 'd', restaurantName: 'Wok Express With A Really Long Restaurant Name', fee: '7', miles: '3', acceptedAt: new Date().toISOString(), arrivedAt: new Date().toISOString(), collectedAt: new Date().toISOString(), completedAt: new Date().toISOString() }]) }), '#history', async (p) => { await p.click('.delivery-record summary'); }],
+  ['history: completed delivery', seed({ 'sp.deliveries': JSON.stringify([{ id: 'd', platformId: 'just-eat', platformName: 'Just Eat', restaurantName: 'Wok Express With A Really Long Restaurant Name', fee: '7', miles: '3', acceptedAt: new Date().toISOString(), arrivedAt: new Date().toISOString(), collectedAt: new Date().toISOString(), completedAt: new Date().toISOString() }]) }), '#history', async (p) => { await p.click('.delivery-record summary'); }],
   ['places', seed(), '#places'],
   ['places: search add', seed(), '#places', async (p) => { await p.fill('#place-search', 'Zzz'); }],
   ['places (empty)', { 'sp.settings': JSON.stringify(S) }, '#places'],

@@ -7,6 +7,12 @@ A personal web app for delivery driving. It shows your **real profit per hour** 
 
 ## Using it
 
+The pills below the title apply across every tab: **All → Just Eat → Deliveroo**. All is the initial default; your selection is remembered. Add another named platform in **Settings → Delivery platforms**. There is no generic Other option.
+
+All on the Order tab shows today's combined overview. Choose a platform to enter a new offer. Accepted orders keep their own platform even when you switch views. In History, expand a delivery to correct its platform if needed; older records stay **Platform not recorded** until assigned explicitly.
+
+Shift clocks, profit and expenses always cover the full shift across all platforms. The selected platform's delivery count and recorded fees are shown separately. Places filters recorded collections while sharing each restaurant's parking, notes and wait averages.
+
 1. **Settings (⚙️ top right):** enter your petrol price (£/L), UK MPG, and insurance (£ per hour on shift, e.g. Zego pay-as-you-go).
 2. **Shift tab:** daily profit graph for the last 14 days, with average profit, fuel and hours per day worked. Tap **Start shift** (optionally with your odometer reading), and **End shift** to enter your earnings.
 3. **Order tab**, in four steps:
@@ -17,7 +23,7 @@ A personal web app for delivery driving. It shows your **real profit per hour** 
 4. **Places tab:** your restaurants, with average wait, parking and notes. Sort by most visited or slowest wait. Tap one to edit it.
 5. **History tab:** completed deliveries with expandable timings, followed by shifts grouped by week. Deliveries recorded during a shift also appear in its breakdown. Offer fees don't add to shift earnings automatically: enter the final total from your platforms, including tips, when ending your shift.
 6. **Work area (⚙️ → Restaurant search):** the town or city your search results come from. Starts as Manchester. Searching sends only what you type and this area to Photon (OpenStreetMap search), never your location.
-7. **Backups:** in Settings, use **Download backup file** now and then. Backups include completed deliveries and the current order as well as shifts, places and settings. Older backups can still be restored. Clearing Chrome's data deletes your records.
+7. **Backups:** in Settings, use **Download backup file** now and then. Backups include completed deliveries, the current order, platform definitions and the selected view as well as shifts, places and settings. Older backups can still be restored. Clearing Chrome's data deletes your records.
 
 ## How it calculates
 
@@ -37,7 +43,7 @@ Plain HTML, CSS and JavaScript, with no build step. `calc.js` holds the maths, `
 
 ## Tests
 
-`tests/` has four browser checks. `delivery.js` covers completion, offline/reload recovery, backup round-trips, old records and shift reconciliation. All checks return a non-zero exit code on failure. `functional.js` taps every button and fills every input, including mistakes on purpose. `accessibility.js` checks every screen in light and dark mode for contrast and labels. `mobile.js` sweeps every screen and state in light and dark at three widths (Pixel 7, a small 320px phone, and large text): tap targets of at least 48px that don't touch, inputs with 16px text, no text under 13px, nothing clipped, nothing scrolling sideways, nothing stuck behind the tab bar, plus a full accessibility scan.
+`tests/` has five browser checks. `platforms.js` verifies the global selector, accepted-order identity, filtering, platform corrections and backup compatibility. `delivery.js` covers completion, offline/reload recovery, backup round-trips, old records and shift reconciliation. All checks return a non-zero exit code on failure. `functional.js` taps every button and fills every input, including mistakes on purpose. `accessibility.js` checks every screen in light and dark mode for contrast and labels. `mobile.js` sweeps every screen and state in light and dark at three widths (Pixel 7, a small 320px phone, and large text): tap targets of at least 48px that don't touch, inputs with 16px text, no text under 13px, nothing clipped, nothing scrolling sideways, nothing stuck behind the tab bar, plus a full accessibility scan.
 
 ```
 cd tests && npm install
