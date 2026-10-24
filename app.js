@@ -601,10 +601,10 @@ function netEarningsCard() {
     rows.set(name, (rows.get(name) || 0) + (Number(d.fee) || 0));
   }
   return `<section class="card net-today" id="net-today" data-platform-summary>
-    <h2>Net earnings today</h2>
-    <div class="big net-total ${model.total < 0 ? 'neg' : ''}">${money(model.total)}</div>
-    <p class="muted small">All platforms · ${model.estimated ? 'estimated · ' : ''}before tax</p>
-    <p class="muted small">${deliveries.length} completed ${deliveries.length === 1 ? 'delivery' : 'deliveries'}</p>
+    <div class="net-heading"><h2>Net earnings today</h2>
+      <div class="big net-total ${model.total < 0 ? 'neg' : ''}">${money(model.total)}</div></div>
+    <div class="net-context"><p class="muted small">All platforms · ${model.estimated ? 'estimated · ' : ''}before tax</p>
+      <p class="muted small">${deliveries.length} completed ${deliveries.length === 1 ? 'delivery' : 'deliveries'}</p></div>
     <details class="net-details"><summary>Payments and expenses</summary>
       <div class="line"><span>Recorded shift earnings</span><b>${money(point?.earnings || 0)}</b></div>
       <div class="line"><span>Fuel, maintenance & insurance</span><b>−${money(point?.costs || 0)}</b></div>
