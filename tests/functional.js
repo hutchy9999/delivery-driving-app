@@ -107,7 +107,7 @@ const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL:'
   const detail = await p.textContent('main');
   ok(detail.includes('£7.25') && detail.includes('test <b>note</b>'), 'detail shows fuel £7.25 and escaped note');
   ok(detail.includes('Insurance (£1.16/hr)') && detail.includes('−£5.80'), '5h shift charges £5.80 insurance');
-  ok(!/tax|take-home/i.test(detail), 'no tax on shift breakdown');
+  ok(detail.includes('before tax') && !/take-home/i.test(detail), 'shift review explicitly shows profit before tax');
 
   // 6. Android back from detail should not reopen the end form
   await p.goBack(); ok(!['#end'].includes(await hash()), 'back after save does not return to form: ' + await hash());

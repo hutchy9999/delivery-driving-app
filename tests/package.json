@@ -2,7 +2,7 @@
   "private": true,
   "scripts": {
     "serve": "python3 -m http.server 8765 --directory ..",
-    "test": "node functional.js && node delivery.js && node platforms.js && node charts.js && node shift-guard.js && node usability.js && node accessibility.js && node mobile.js"
+    "test": "node functional.js && node delivery.js && node platforms.js && node charts.js && node shift-guard.js && node shift-review.js && node usability.js && node accessibility.js && node mobile.js"
   },
   "devDependencies": {
     "axe-core": "4.10.2",

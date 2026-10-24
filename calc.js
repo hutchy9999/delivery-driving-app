@@ -115,6 +115,39 @@ function profitTimeline(shifts, deliveries, active, settings, now = Date.now()) 
   });
 }
 
+// Review only explicitly linked deliveries. Merge clipped intervals so overlapping
+// jobs never double-count time; missing timestamps are not invented.
+function calcShiftReview(shift, deliveries) {
+  const start = +new Date(shift.start), end = +new Date(shift.end);
+  const jobs = shift.id ? deliveries.filter(d => d.shiftId === shift.id &&
+    +new Date(d.completedAt) >= start && +new Date(d.completedAt) <= end) : [];
+  const interval = (a, b) => {
+    if (!a || !b) return null;
+    const from = +new Date(a), to = +new Date(b);
+    return Number.isFinite(from) && Number.isFinite(to) && to >= from && to >= start && from <= end
+      ? [Math.max(start, from), Math.min(end, to)] : null;
+  };
+  const mergedHours = intervals => {
+    let total = 0, last = null;
+    for (const item of intervals.sort((a, b) => a[0] - b[0])) {
+      if (last && item[0] <= last[1]) last[1] = Math.max(last[1], item[1]);
+      else { if (last) total += last[1] - last[0]; last = [...item]; }
+    }
+    if (last) total += last[1] - last[0];
+    return total / 3600000;
+  };
+  const timed = jobs.map(d => interval(d.acceptedAt, d.completedAt)).filter(Boolean);
+  const waits = jobs.map(d => interval(d.arrivedAt, d.collectedAt)).filter(Boolean);
+  const mileage = jobs.filter(d => d.miles !== '' && d.miles != null && Number.isFinite(+d.miles) && +d.miles >= 0);
+  const hours = Math.max(0, (end - start) / 3600000);
+  const offerMiles = mileage.reduce((sum, d) => sum + +d.miles, 0);
+  return { count: jobs.length, perHour: hours > 0 ? jobs.length / hours : 0,
+    timedCount: timed.length, waitCount: waits.length, waitHours: mergedHours(waits),
+    outsideHours: timed.length ? Math.max(0, hours - mergedHours(timed)) : null,
+    mileageCount: mileage.length, offerMiles,
+    mileageDifference: jobs.length && mileage.length === jobs.length ? +shift.miles - offerMiles : null };
+}
+
 if (typeof module !== 'undefined') {
-  module.exports = { LITRES_PER_UK_GALLON, insurancePerHour, fuelCostPerMile, calcShift, calcOrder, sumResults, profitTimeline };
+  module.exports = { LITRES_PER_UK_GALLON, insurancePerHour, fuelCostPerMile, calcShift, calcOrder, sumResults, profitTimeline, calcShiftReview };
 }

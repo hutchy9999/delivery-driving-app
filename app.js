@@ -764,10 +764,12 @@ function renderShift(view, id) {
   if (!shift) return go('#history');
   const r = calcShift(shift);
   const s = shift.settings;
+  const review = calcShiftReview(shift, store.deliveries);
   const line = (label, value, cls = '') => `<div class="line ${cls}"><span>${label}</span><b>${value}</b></div>`;
 
   view.innerHTML = `
-    <h2>${dateLabel(shift.start)} · ${timeLabel(shift.start)}–${timeLabel(shift.end)}</h2>
+    <h2>Shift review</h2>
+    <p class="muted">${dateLabel(shift.start)} · ${timeLabel(shift.start)}–${timeLabel(shift.end)}</p>
     <p class="muted small">All platforms · full shift totals, including shared time and expenses</p>
     ${shift.note ? `<p class="muted">${esc(shift.note)}</p>` : ''}
     <div class="card">
@@ -778,17 +780,38 @@ function renderShift(view, id) {
         <div><b>${money(r.costs)}</b><small>costs</small></div>
         <div><b>${money(r.profitPerMile)}</b><small>profit/mile</small></div>
       </div>
+      <p class="muted small center">After configured fuel, maintenance and insurance, before tax. Depreciation is not included.</p>
     </div>
+    <section class="card shift-review" aria-labelledby="review-time">
+      <h2 id="review-time">How your time was spent</h2>
+      ${line('Full shift', duration(r.hours))}
+      ${line('Recorded deliveries', String(review.count))}
+      ${line('Deliveries per shift hour', num(review.perHour))}
+      ${line('Recorded restaurant waiting', review.waitCount ? duration(review.waitHours) : 'Not recorded')}
+      ${line('Outside timed deliveries', review.outsideHours !== null ? duration(review.outsideHours) : 'Not recorded')}
+      <details class="net-details"><summary>What these timings mean</summary>
+      <p class="muted small">All platforms. ${review.timedCount}/${review.count} deliveries have acceptance-to-completion timings; ${review.waitCount}/${review.count} have wait timings. Overlapping times count once.</p>
+      <p class="muted small">Outside timed deliveries includes time before, between and after recorded jobs: repositioning, waiting for offers, breaks and missing entries. ${review.timedCount < review.count ? 'Missing timings can make this amount too high.' : 'It is not a measure of idle time.'}</p>
+      </details>
+      ${review.timedCount < review.count || review.waitCount < review.count ? '<p class="muted small">Some timings are missing; recorded totals are incomplete.</p>' : ''}
+      ${!review.count ? '<p class="muted small">No completed deliveries linked to this shift. The profit above still uses your saved shift totals.</p>' : ''}
+    </section>
+    <section class="card shift-review" aria-labelledby="review-miles">
+      <h2 id="review-miles">Mileage comparison</h2>
+      ${line('Actual shift mileage', num(r.miles) + ' mi')}
+      ${line('Entered offer mileage', review.mileageCount ? num(review.offerMiles) + ' mi' : 'Not recorded')}
+      ${line('Actual minus entered offers', review.mileageDifference !== null ? (review.mileageDifference > 0 ? '+' : '') + num(review.mileageDifference) + ' mi' : 'Not available')}
+      <p class="muted small">Offer mileage entered for ${review.mileageCount}/${review.count} recorded deliveries. Profit uses actual shift mileage.</p>
+      <details class="net-details"><summary>What the difference means</summary>
+      <p class="muted small">${review.mileageDifference === null ? 'A difference is shown once all recorded deliveries have mileage.' : 'The difference can reflect repositioning, route changes and offer estimates; it is not exact unpaid mileage.'} Unrecorded jobs can also affect the comparison.</p></details>
+    </section>
     <div class="card">
+      <h2>Payments and expenses</h2>
       ${line('Earnings', money(r.earnings))}
       ${line(`Fuel (${num(r.litres)} L)`, '−' + money(r.fuel))}
       ${line('Maintenance', '−' + money(r.maintenance))}
       ${line(`Insurance (${money(insurancePerHour(s))}/hr)`, '−' + money(r.insurance))}
       ${line('Profit', money(r.profit), 'total')}
-    </div>
-    <div class="card">
-      ${line('Time worked', duration(r.hours))}
-      ${line('Miles', num(r.miles))}
       <p class="muted small">Worked out with petrol at ${money(s.fuelPrice)}/L and ${num(s.mpg)} MPG.</p>
     </div>
     ${deliveryHistory(filterDeliveries(store.deliveries.filter((d) => d.shiftId === shift.id)))}
