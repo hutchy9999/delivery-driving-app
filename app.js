@@ -63,8 +63,12 @@ const store = {
   set lastBackup(v) { save(KEYS.lastBackup, v); },
   get platforms() { return normalisePlatforms(load(KEYS.platforms, [])); },
   set platforms(v) { save(KEYS.platforms, normalisePlatforms(v)); },
-  get platform() { const id = load(KEYS.platform, 'all'); return store.platforms.some((p) => p.id === id) ? id : 'all'; },
-  set platform(v) { save(KEYS.platform, v); },
+  get platform() {
+    const id = load(KEYS.platform, 'just-eat');
+    if (id === 'all') return load('sp.providerSettings', false) ? 'all' : 'just-eat';
+    return store.platforms.some((p) => p.id === id) ? id : 'just-eat';
+  },
+  set platform(v) { save(KEYS.platform, v); save('sp.providerSettings', true); },
   get chartRange() { return load('sp.chartRange', 'today') === 'fortnight' ? 'fortnight' : 'today'; },
   set chartRange(v) { save('sp.chartRange', v); },
 };
@@ -207,13 +211,14 @@ function platformSummary(deliveries, title, compact = false) {
 }
 
 function renderPlatformSelector() {
+  if (!$('#platform-selector')) return;
   const selected = store.platform;
   $('#platform-selector').innerHTML = [{ id: 'all', name: 'All' }, ...store.platforms].map((p) =>
     `<button type="button" class="platform-pill ${p.id === 'just-eat' ? 'just-eat' : p.id === 'deliveroo' || p.id === 'all' ? 'deliveroo' : 'custom'}" data-platform="${esc(p.id)}" aria-pressed="${selected === p.id}">${selected === p.id ? '✓ ' : ''}${esc(p.name)}</button>`).join('');
 }
 
 function renderOrderOverview(view) {
-  view.innerHTML = `<p class="muted small">Choose a platform above to record an order.</p>
+  view.innerHTML = `<p class="muted small">All shows your combined overview. Choose a provider in Settings to record an order.</p><a class="btn" href="#settings">Choose provider in Settings</a>
     ${platformSummary(todaysDeliveries(), 'Today')}
     ${deliveryHistory(todaysDeliveries().sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt)).slice(0, 5))}
     <a class="btn" href="#history">View full history</a>`;
@@ -245,7 +250,6 @@ function render() {
     else b.removeAttribute('aria-current');
   });
   $('#gear').classList.toggle('active', tab === 'settings');
-  renderPlatformSelector();
 
   switch (route) {
     case 'end': return renderShiftForm(view, 'end');
@@ -264,14 +268,12 @@ function render() {
 window.addEventListener('hashchange', render);
 document.querySelectorAll('.tab').forEach((b) => b.addEventListener('click', () => go('#' + b.dataset.tab)));
 $('#gear').addEventListener('click', () => go('#settings'));
-$('#platform-selector').addEventListener('click', (e) => {
+document.addEventListener('click', (e) => {
   const button = e.target.closest('[data-platform]');
   if (!button) return;
   store.platform = button.dataset.platform;
-  // These forms edit shared records; switching the view must not discard typing.
-  const route = location.hash.slice(1).split('/')[0];
-  if (['end', 'add', 'edit', 'settings', 'place'].includes(route)) renderPlatformSelector();
-  else render();
+  // Only the Settings control is rebuilt, preserving any in-progress inputs.
+  renderPlatformSelector();
 });
 
 document.addEventListener('change', (e) => {
@@ -1035,7 +1037,7 @@ function renderOrder(view) {
   else renderOffer(view);
   const record = active ? order : { platformId: store.platform };
   view.insertAdjacentHTML('afterbegin', `<div class="order-platform-context">${platformBadge(record)}
-    ${active && store.platform !== 'all' && store.platform !== order.platformId ? `<p class="muted small">Current order: ${esc(platformName(order.platformId, order.platformName))}. The selector changes your view, not this order.</p>` : ''}</div>`);
+    ${active && store.platform !== 'all' && store.platform !== order.platformId ? `<p class="muted small">Current order: ${esc(platformName(order.platformId, order.platformName))}. Changing provider in Settings does not change this order.</p>` : ''}</div>`);
 }
 
 function renderOffer(view) {
@@ -1333,7 +1335,7 @@ function renderPlaces(view) {
           <a class="place-row" href="#place/${esc(p.id)}">
             <span><b>${placeName(p)}</b><small>${placeMeta(p)}${p.spot ? ' · 🅿️ spot saved' : ''}</small></span>${easeTag(p)}
           </a>`).join('') + add
-      : (q ? add : `<div class="card"><p class="muted">${store.platform === 'all' ? "No places yet. They're added when you pick a restaurant on an order, or search above to add one." : 'No collections recorded for this platform yet. Choose All to see every saved place.'}</p></div>`);
+      : (q ? add : `<div class="card"><p class="muted">${store.platform === 'all' ? "No places yet. They're added when you pick a restaurant on an order, or search above to add one." : 'No collections recorded for this provider yet. Choose All in Settings to see every saved place.'}</p></div>`);
     const b = $('#add-place');
     if (b) b.onclick = () => go('#place/' + addPlace(search.value).id);
   };
@@ -1411,7 +1413,7 @@ function renderHistory(view) {
   if (!shifts.length) {
     view.innerHTML = `
       ${overview}${deliveryHistory(deliveries)}
-      <div class="card"><p class="muted">${store.platform === 'all' ? 'No shifts yet. Start one from the Shift tab.' : `No linked shifts for ${esc(platformName(store.platform))} yet. Choose All to see every shift.`}</p></div>
+      <div class="card"><p class="muted">${store.platform === 'all' ? 'No shifts yet. Start one from the Shift tab.' : `No linked shifts for ${esc(platformName(store.platform))} yet. Choose All in Settings to see every shift.`}</p></div>
       <button class="btn" onclick="location.hash='#add'">+ Add a past shift</button>`;
     return;
   }
@@ -1465,9 +1467,9 @@ function renderSettings(view) {
 
   view.innerHTML = `
     <section class="card">
-      <h2>Delivery platforms</h2>
-      ${store.platforms.map((p) => `<div class="line"><b>${esc(p.name)}</b><span class="muted small">Enabled</span></div>`).join('')}
-      <p class="muted small">All always shows your combined overview. Add another platform here to give it its own pill.</p>
+      <h2>Delivery provider</h2>
+      <nav id="platform-selector" class="platform-selector" aria-label="Delivery provider"></nav>
+      <p class="muted small">Choose the provider for your next order and delivery history. All shows the combined overview. Shift profit always includes all providers. Accepted orders keep their recorded provider.</p>
       <form id="platform-form">
         <label class="field"><span>New platform name</span><input name="platformName" maxlength="40" placeholder="e.g. Uber Eats" autocomplete="off" required></label>
         <p id="platform-error" class="error" role="alert" hidden></p>
@@ -1510,6 +1512,7 @@ function renderSettings(view) {
       <input type="file" id="file" accept=".json,application/json" hidden>
     </div>`;
 
+  renderPlatformSelector();
   $('#platform-form').onsubmit = (e) => {
     e.preventDefault();
     const name = e.currentTarget.elements.platformName.value.trim();
@@ -1637,7 +1640,7 @@ async function importBackup(file) {
     store.places = places;
     store.deliveries = deliveries;
     store.platforms = data.platforms;
-    store.platform = store.platforms.some((p) => p.id === data.selectedPlatform) ? data.selectedPlatform : 'all';
+    store.platform = data.selectedPlatform === 'all' || store.platforms.some((p) => p.id === data.selectedPlatform) ? data.selectedPlatform : 'just-eat';
     const order = data.order;
     store.order = order && ['offer', 'pickup', 'waiting', 'deliver'].includes(order.step) &&
       (order.step !== 'deliver' || (order.collectedAt && !isNaN(new Date(order.collectedAt)))) &&

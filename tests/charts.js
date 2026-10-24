@@ -1,3 +1,4 @@
+const { chooseProvider } = require('./provider-helper');
 const assert = require('node:assert/strict');
 const { chromium, devices } = require('playwright');
 const path = require('node:path');
@@ -44,7 +45,7 @@ assert.equal(profitTimeline([], [], {start:'invalid'}, S, now).length, 0);
   assert.ok((await page.locator('.chart-total').innerText()).includes(live.at(-1).profit.toFixed(2)));
   assert.ok((await page.locator('[data-platform-summary]').innerText()).includes('£13.00'));
   assert.equal(await page.locator('.compact-breakdown > div').count(), 2);
-  await page.locator('[data-platform="just-eat"]').click();
+  await chooseProvider(page, 'just-eat');
   assert.ok((await page.locator('[data-platform-summary]').innerText()).includes('£13.00'));
   assert.ok((await page.locator('.chart-status').innerText()).includes('All platforms'));
   await page.locator('#chart-previous').click();

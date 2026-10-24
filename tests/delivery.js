@@ -1,3 +1,4 @@
+const { chooseProvider } = require('./provider-helper');
 // End-to-end recording, reload/offline recovery, backups and old-data compatibility.
 const { chromium, devices } = require('playwright');
 const assert = require('node:assert/strict');
@@ -23,7 +24,7 @@ const URL = 'http://localhost:8765/';
     const active = await read('sp.active');
     assert.ok(active.id);
     await route('#order');
-    await page.click('[data-platform="just-eat"]');
+    await chooseProvider(page, 'just-eat');
     await page.fill('[name=fee]', '7');
     await page.fill('[name=miles]', '3');
     await page.fill('.picker-input', 'Local Kitchen');
@@ -157,7 +158,7 @@ const URL = 'http://localhost:8765/';
     await page.click('#cancel-delivery');
     assert.equal((await read('sp.order')).step, 'offer');
     assert.deepEqual(await read('sp.deliveries'), []);
-    await page.click('[data-platform="just-eat"]');
+    await chooseProvider(page, 'just-eat');
     await page.click('#take');
     await page.click('#arrived');
     await page.click('#got');

@@ -1,3 +1,4 @@
+const { chooseProvider } = require('./provider-helper');
 // Visits every screen in light and dark mode; runs axe + a 48px tap-target check.
 const { chromium, devices } = require('playwright');
 const fs = require('fs');
@@ -22,7 +23,7 @@ const MIN = 48;
       ['home-data', async () => { await p.evaluate(s => { localStorage['sp.shifts'] = JSON.stringify([s]); localStorage['sp.settings'] = JSON.stringify(s.settings); }, shift); await p.goto('http://localhost:8765/#history'); await p.goto('http://localhost:8765/#home'); }],
       ['history', async () => p.goto('http://localhost:8765/#history')],
       ['order-overview', async () => p.goto('http://localhost:8765/#order')],
-      ['order-empty', async () => { await p.click('[data-platform="just-eat"]'); }],
+      ['order-empty', async () => { await chooseProvider(p, 'just-eat'); }],
       ['order-good', async () => { await p.fill('[name=fee]', '4'); await p.fill('[name=miles]', '1.5'); }],
       ['order-ok', async () => { await p.fill('[name=fee]', '5'); await p.fill('[name=miles]', '3'); }],
       ['order-poor', async () => { await p.fill('[name=fee]', '5'); await p.fill('[name=miles]', '7'); }],

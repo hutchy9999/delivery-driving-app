@@ -1,3 +1,4 @@
+const { chooseProvider } = require('./provider-helper');
 const { chromium, devices } = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -16,7 +17,7 @@ const URL = 'http://localhost:8765/';
     page.on('dialog', (dialog) => dialog.accept());
     const read = (key) => page.evaluate((k) => JSON.parse(localStorage.getItem(k) || 'null'), key);
     const go = async (hash) => { await page.goto(URL + hash); };
-    const choose = async (id) => { await page.click(`[data-platform="${id}"]`); };
+    const choose = async (id) => chooseProvider(page, id);
     const summary = () => page.locator('[data-platform-summary]').innerText();
     const screenshot = async (name) => {
       if (!process.env.SCREENSHOT_DIR) return;
@@ -25,7 +26,15 @@ const URL = 'http://localhost:8765/';
     };
 
     await go('#order');
-    assert.deepEqual(await page.locator('[data-platform]').allTextContents(), ['✓ All', 'Just Eat', 'Deliveroo']);
+    assert.equal(await page.locator('[data-platform]').count(), 0, 'no top selector on Order');
+    assert.equal(await page.locator('#take').count(), 1, 'Just Eat is the initial default');
+    await page.evaluate(() => { localStorage['sp.platform'] = JSON.stringify('all'); localStorage.removeItem('sp.providerSettings'); });
+    await page.reload();
+    assert.equal(await page.locator('#take').count(), 1, 'old All preference upgrades to Just Eat without changing records');
+    await go('#settings');
+    assert.deepEqual(await page.locator('[data-platform]').allTextContents(), ['All', '✓ Just Eat', 'Deliveroo']);
+    await go('#order');
+    await choose('all');
     assert.equal(await page.locator('#take').count(), 0, 'All cannot be assigned to an order');
     await choose('just-eat');
     await page.fill('[name=fee]', '7');
@@ -46,7 +55,8 @@ const URL = 'http://localhost:8765/';
     assert.equal((await read('sp.order')).platformId, 'just-eat');
     assert.ok((await page.textContent('.order-platform-context')).includes('Just Eat'));
     await go('#home');
-    assert.equal(await page.getAttribute('[data-platform="deliveroo"]', 'aria-pressed'), 'true');
+    assert.equal(await page.locator('[data-platform]').count(), 0, 'no top selector on Shift');
+    assert.equal(await read('sp.platform'), 'deliveroo');
     assert.equal((await read('sp.active')).start, start);
     assert.ok((await summary()).includes('0 completed deliveries'));
     await go('#order');
@@ -118,12 +128,10 @@ const URL = 'http://localhost:8765/';
     await page.emulateMedia({ colorScheme: 'light' });
 
     // A shared form remains intact when the global view is switched.
-    await go('#add');
-    await page.fill('[name=earnings]', '42');
-    await page.fill('[name=miles]', '12');
+    await go('#settings');
+    await page.fill('[name=platformName]', 'Draft provider');
     await choose('deliveroo');
-    assert.equal(await page.inputValue('[name=earnings]'), '42');
-    assert.equal(await page.inputValue('[name=miles]'), '12');
+    assert.equal(await page.inputValue('[name=platformName]'), 'Draft provider');
 
     // New providers are created explicitly in Settings, with stable IDs and duplicates rejected.
     await go('#settings');
@@ -165,12 +173,12 @@ const URL = 'http://localhost:8765/';
     assert.equal(await page.getAttribute(`[data-platform="${custom.id}"]`, 'aria-pressed'), 'true');
     await context.setOffline(false);
 
-    // Version-two imports without provider metadata retain records and default back to All.
+    // Version-two imports without provider metadata retain records and default to Just Eat.
     const old = { ...backup, version: 2 };
     delete old.platforms;
     delete old.selectedPlatform;
     await page.setInputFiles('#file', { name: 'old.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(old)) });
-    await page.waitForFunction(() => JSON.parse(localStorage['sp.platform']) === 'all');
+    await page.waitForFunction(() => JSON.parse(localStorage['sp.platform']) === 'just-eat');
     assert.equal((await read('sp.platforms')).length, 2);
     assert.equal((await read('sp.order')).platformName, 'Uber Eats', 'recorded identity survives missing provider definitions');
     // Old active shifts without IDs must not absorb every unlinked historical delivery.
