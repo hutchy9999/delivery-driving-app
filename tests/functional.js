@@ -384,12 +384,15 @@ const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL:'
   await tap('#end');
   ok((await p.textContent('main')).includes('If you forgot to end it'), 'long shift warning when ending');
   await p.evaluate(() => localStorage.removeItem('sp.active'));
-  // Not-on-shift reminder on the Order tab
+  // Order steps lead the page, including when no shift is running
   await chooseProvider(p, 'just-eat');
   await tap('[data-tab=order]');
-  ok(await p.isVisible('#start-from-order'), 'order tab warns when not on shift');
-  await tap('#start-from-order');
-  ok(!!(await ls('sp.active')) && !(await p.$('#start-from-order')), 'start shift from the order tab');
+  ok(!(await p.$('#start-from-order')) && !(await p.textContent('main')).includes('Not on shift'), 'Order has no off-shift banner');
+  ok(await p.evaluate(() => document.querySelector('main').firstElementChild.matches('.steps')), 'Order progress steps are first');
+  ok(!(await ls('sp.active')), 'opening Order does not start a shift');
+  await tap('[data-tab=home]'); await tap('#start');
+  await tap('[data-tab=order]');
+  ok(!!(await ls('sp.active')), 'shift still starts explicitly from Shift');
   await p.evaluate(() => localStorage.removeItem('sp.active'));
   // No accidental one-letter places
   await tap('[data-tab=home]'); await tap('[data-tab=order]');
