@@ -1063,14 +1063,13 @@ function renderOrder(view) {
   else if (order.step === 'deliver') renderDeliver(view);
   else renderOffer(view);
   const record = active ? order : { platformId: store.platform };
-  view.insertAdjacentHTML('afterbegin', `<div class="order-platform-context">${platformBadge(record)}
+  $('.steps', view).insertAdjacentHTML('afterend', `<div class="order-platform-context">${platformBadge(record)}
     ${active && store.platform !== 'all' && store.platform !== order.platformId ? `<p class="muted small">Current order: ${esc(platformName(order.platformId, order.platformName))}. Changing provider in Settings does not change this order.</p>` : ''}</div>`);
 }
 
 function renderOffer(view) {
   const o = store.order;
   view.innerHTML = `
-    ${store.active ? '' : `<div class="card notice">Not on shift, so your time and insurance aren't being counted. <button class="btn" id="start-from-order">Start shift now</button></div>`}
     ${stepPills('offer')}
     <form id="of" class="card offer-entry" novalidate>
       <div class="pair">
@@ -1156,8 +1155,6 @@ function renderOffer(view) {
       shiftId: order.shiftId || store.active?.id || null, restaurantName: place?.name || '', settings: order.settings || store.settings });
     render();
   };
-  const startHere = $('#start-from-order');
-  if (startHere) startHere.onclick = () => { store.active = { id: newId(), start: new Date().toISOString(), startOdo: '' }; toast('Shift started. Drive safe!'); render(); };
   $('#clear').onclick = () => {
     if (store.order.acceptedAt && !confirm('Cancel this accepted order? No completed delivery will be saved.')) return;
     store.order = { ...EMPTY_ORDER }; render();

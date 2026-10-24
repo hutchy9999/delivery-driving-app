@@ -15,6 +15,7 @@ await seed({'sp.active':active,'sp.deliveries':jobs});const end=await page.locat
 await page.click('.shift-options summary');assert.ok(await page.locator('#cancel').isVisible());await page.keyboard.press('Escape');assert.equal(await page.locator('#cancel').isVisible(),false);
 await page.click('.shift-options summary');await page.click('.chart-heading');assert.equal(await page.locator('#cancel').isVisible(),false);
 await page.emulateMedia({colorScheme:'dark'});await shot('shift-dark');await page.emulateMedia({colorScheme:'light'});
+await seed({},'order');assert.equal(await page.locator('#start-from-order').count(),0);assert.ok(await page.locator('main > :first-child').evaluate(e=>e.matches('.steps')));assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('sp.active')||'null')),null);await shot('offer-off-shift');
 await seed({'sp.active':active},'order');const positions=[];
 for(const [fee,miles]of [['',''],['7','3'],['2','3'],['5','3']]){await page.fill('[name=fee]',fee);await page.fill('[name=miles]',miles);positions.push((await page.locator('#take').boundingBox()).y);}
 assert.ok(Math.max(...positions)-Math.min(...positions)<3,'offer result must not move acceptance while entering common offers: '+positions);

@@ -9,6 +9,8 @@ A personal web app for delivery driving. It shows your **real profit per hour** 
 
 Provider selection lives in **Settings → Delivery provider**, keeping the top of Shift, Order, Places and History free of selector pills. **Just Eat** is the default; choose Deliveroo, All or an additional named provider in Settings. Your explicit choice is remembered. Add another named provider in the same section. There is no generic Other option.
 
+The Order tab starts with the Offer / Pickup / Waiting / Deliver steps, followed by the provider badge. Start your shift from the Shift tab; Order does not show an off-shift banner or start a shift automatically.
+
 All on the Order tab shows today's combined overview. Choose a provider in Settings to enter a new offer. Accepted orders keep their own provider even when you switch views. In History, expand a delivery to correct its provider if needed; older records stay **Platform not recorded** until assigned explicitly.
 
 Shift clocks, profit and expenses always cover the full shift across all platforms. The Shift graph comes first, followed by **Net earnings today** after configured expenses and before tax, then the Start/End shift controls. **Payments and expenses** expands the cost breakdown and each provider's payments before costs. Places filters recorded collections while sharing each restaurant's parking, notes and wait averages.
