@@ -127,6 +127,91 @@ const BACKUP_EVERY_DAYS = 14;
 
 const hoursSince = (iso) => (Date.now() - new Date(iso)) / 3600000;
 
+// One foreground-only, bounded capture. This is a completion point, not a route.
+let deliveryCapture = null;
+const captureEnabled = () => load('sp.captureDeliveryLocation', true) === true;
+function stopDeliveryCapture() {
+  if (!deliveryCapture) return;
+  clearTimeout(deliveryCapture.timeout);
+  if (deliveryCapture.watch != null) navigator.geolocation?.clearWatch(deliveryCapture.watch);
+  deliveryCapture.watch = null;
+}
+function showDeliveryCapture() {
+  const host = $('#location-capture'), capture = deliveryCapture;
+  host.hidden = !capture;
+  if (!capture) { host.innerHTML = ''; return; }
+  const saved = capture.status === 'saved';
+  const finding = capture.status === 'finding';
+  const titles = {finding:'Finding location…',saved:'Delivery location saved',skipped:'Location skipped',unavailable:'Location unavailable',interrupted:'Location capture interrupted',storage:'Location could not be saved'};
+  const descriptions = {
+    finding:'Delivery already saved. Keep this app visible for up to 5 seconds.',
+    saved:`Estimated accuracy ±${Math.ceil(capture.saved?.accuracy || 0)} m.${capture.saved?.accuracy > 30 ? ' Approximate fix; the 30 m target was not reached.' : ' No further action needed.'}`,
+    skipped:'Your delivery is saved. No location was added.',
+    unavailable:capture.reason || 'No sufficiently accurate fresh fix within 5 seconds. Your delivery is saved.',
+    interrupted:'Capture stopped when this app was hidden. Your delivery is saved.',
+    storage:'Your delivery is saved, but its location could not be stored.'
+  };
+  host.innerHTML = `<div class="card"><p role="status"><b>${titles[capture.status]}</b></p><p class="muted small">${descriptions[capture.status]}</p>
+    <div class="actions">${finding ? '<button class="btn" id="skip-location">Skip</button>' : `${!saved && Date.now() - capture.completed < 120000 ? '<button class="btn" id="retry-location">Retry at drop-off</button>' : ''}<button class="btn" id="dismiss-location">${saved ? 'Done' : 'Dismiss'}</button>`}</div></div>`;
+  if (finding) $('#skip-location').onclick = () => finishDeliveryCapture('skipped');
+  else {
+    $('#dismiss-location').onclick = () => { stopDeliveryCapture(); deliveryCapture = null; showDeliveryCapture(); };
+    const retry = $('#retry-location');
+    if (retry) retry.onclick = () => startDeliveryCapture(capture.id);
+  }
+}
+function finishDeliveryCapture(status, point = null) {
+  const capture = deliveryCapture;
+  if (!capture || capture.status !== 'finding') return;
+  stopDeliveryCapture();
+  if (point) {
+    try {
+      const deliveries = store.deliveries;
+      if (!deliveries.some(d => d.id === capture.id)) { capture.status = 'unavailable'; showDeliveryCapture(); return; }
+      store.deliveries = deliveries.map(d => d.id === capture.id ? {...d, deliveryLocation:point} : d);
+      capture.saved = point;
+    } catch { status = 'storage'; }
+  }
+  capture.status = status;
+  showDeliveryCapture();
+}
+function startDeliveryCapture(id) {
+  stopDeliveryCapture();
+  const delivery = store.deliveries.find(d => d.id === id);
+  if (!delivery || !captureEnabled() || Date.now() - +new Date(delivery.completedAt) >= 120000) {
+    deliveryCapture = null; showDeliveryCapture(); return;
+  }
+  const started = Date.now();
+  const capture = deliveryCapture = {id,completed:+new Date(delivery.completedAt),status:'finding',started,watch:null,best:null};
+  const finishBest = () => { if (deliveryCapture === capture) finishDeliveryCapture(capture.best ? 'saved' : 'unavailable', capture.best); };
+  showDeliveryCapture();
+  if (!navigator.geolocation || document.hidden) { capture.reason = 'Location is unavailable. Your delivery is saved.'; return finishDeliveryCapture('unavailable'); }
+  capture.timeout = setTimeout(finishBest, 5000);
+  try {
+    const watch = navigator.geolocation.watchPosition(position => {
+      if (deliveryCapture !== capture || capture.status !== 'finding') return;
+      if (Date.now() - started >= 5000) return finishBest();
+      const {latitude,longitude,accuracy} = position.coords;
+      if (![latitude,longitude,accuracy,position.timestamp].every(Number.isFinite) || Math.abs(latitude)>90 || Math.abs(longitude)>180 || accuracy<0 || accuracy>100 || position.timestamp<started-1000 || position.timestamp>Date.now()+1000) return;
+      const point = {latitude,longitude,accuracy,capturedAt:new Date(position.timestamp).toISOString()};
+      if (!capture.best || accuracy<capture.best.accuracy) capture.best = point;
+      if (accuracy<=30) finishDeliveryCapture('saved', point);
+    }, error => {
+      if (deliveryCapture !== capture || capture.status !== 'finding') return;
+      if (error.code === 1) { capture.reason = 'Location permission was not granted. Your delivery is saved.'; finishDeliveryCapture('unavailable'); }
+      // Transient failures can recover before the fixed deadline.
+    }, {enableHighAccuracy:true,maximumAge:0,timeout:5000});
+    if (capture.status === 'finding') capture.watch = watch;
+    else navigator.geolocation.clearWatch(watch);
+  } catch { finishDeliveryCapture('unavailable'); }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && deliveryCapture?.status === 'finding') finishDeliveryCapture('interrupted');
+});
+window.addEventListener('pagehide', () => {
+  if (deliveryCapture?.status === 'finding') finishDeliveryCapture('interrupted');
+});
+
 function longShiftNote(active) {
   const h = hoursSince(active.start);
   return h >= LONG_SHIFT_HOURS
@@ -287,6 +372,21 @@ document.addEventListener('change', (e) => {
     ? { ...w, platformId: platform?.id || null } : w) }));
   toast('Delivery platform saved');
   render();
+});
+
+document.addEventListener('click', event => {
+  const button = event.target.closest('[data-remove-location]');
+  if (!button) return;
+  const id = button.dataset.removeLocation;
+  try {
+    store.deliveries = store.deliveries.map(delivery => {
+      if (delivery.id !== id) return delivery;
+      const {deliveryLocation, ...rest} = delivery;
+      return rest;
+    });
+    if (deliveryCapture?.id === id) { stopDeliveryCapture(); deliveryCapture = null; showDeliveryCapture(); }
+    toast('Saved location removed'); render();
+  } catch { toast('Could not remove location. Try again.'); }
 });
 
 // ---------- Interactive profit charts ----------
@@ -1315,6 +1415,7 @@ function renderDeliver(view) {
     }
     toast('Delivery saved. Ready for the next order');
     render();
+    if (captureEnabled()) startDeliveryCapture(delivery.id);
   };
   $('#cancel-delivery').onclick = () => {
     if (!confirm('Cancel this delivery? No completed delivery will be saved. The restaurant wait already recorded will be kept.')) return;
@@ -1348,6 +1449,9 @@ function deliveryHistory(deliveries = store.deliveries) {
         ${line('Collection to completion', interval(d.collectedAt, d.completedAt))}
         ${line('Acceptance to completion', interval(d.acceptedAt, d.completedAt))}
         ${d.miles !== '' ? line('Miles from offer', num(+d.miles)) : ''}
+        ${d.deliveryLocation ? `${line('Delivery location', 'Saved · ±' + Math.ceil(d.deliveryLocation.accuracy) + ' m')}
+          <p class="muted small">${esc(d.deliveryLocation.latitude)}, ${esc(d.deliveryLocation.longitude)} · captured ${esc(dateLabel(d.deliveryLocation.capturedAt))} ${esc(timeLabel(d.deliveryLocation.capturedAt))}. This is your completion position, not a measured route.</p>
+          <button class="btn link" data-remove-location="${esc(d.id)}">Remove saved location</button>` : ''}
         <a class="btn" href="#delivery-edit/${esc(d.id)}">Edit delivery</a>
         ${d.correctedAt ? `<p class="muted small">Corrected ${dateLabel(d.correctedAt)} · ${timeLabel(d.correctedAt)}. Original values are kept in Edit delivery.</p>` : ''}
       </details>`).join('');
@@ -1607,6 +1711,12 @@ function renderSettings(view) {
 
   view.innerHTML = `
     <section class="card">
+      <h2>Delivery location</h2>
+      <button class="btn" id="capture-setting" aria-pressed="${captureEnabled()}">${captureEnabled() ? 'On' : 'Off'} · Save location after Delivered</button>
+      <p class="muted small">Tries for up to 5 seconds while this app is visible. Stops early at estimated accuracy of 30 m or better; at the deadline a fix up to 100 m is saved and labelled approximate. Skip cancels without adding a location. Your browser asks for permission.</p>
+      <p class="muted small">Coordinates, estimated accuracy and capture time stay on this phone and are included in backups. No route tracking or address lookup. Retry only while still parked at the drop-off.</p>
+    </section>
+    <section class="card">
       <h2>Delivery provider</h2>
       <nav id="platform-selector" class="platform-selector" aria-label="Delivery provider"></nav>
       <p class="muted small">Choose the provider for your next order and delivery history. All shows the combined overview. Shift profit always includes all providers. Accepted orders keep their recorded provider.</p>
@@ -1653,6 +1763,11 @@ function renderSettings(view) {
     </div>`;
 
   renderPlatformSelector();
+  $('#capture-setting').onclick = () => {
+    save('sp.captureDeliveryLocation', !captureEnabled());
+    if (!captureEnabled() && deliveryCapture?.status === 'finding') finishDeliveryCapture('skipped');
+    render();
+  };
   $('#platform-form').onsubmit = (e) => {
     e.preventDefault();
     const name = e.currentTarget.elements.platformName.value.trim();
@@ -1754,7 +1869,7 @@ function exportCsv() {
 }
 
 function exportBackup() {
-  const data = { app: 'shift-profit', version: 3, exportedAt: new Date().toISOString(), settings: store.settings, shifts: store.shifts, deliveries: store.deliveries, order: store.order, active: store.active, places: store.places, area: store.area, platforms: store.platforms, selectedPlatform: store.platform };
+  const data = { app: 'shift-profit', version: 3, exportedAt: new Date().toISOString(), settings: store.settings, shifts: store.shifts, deliveries: store.deliveries, order: store.order, active: store.active, places: store.places, area: store.area, platforms: store.platforms, selectedPlatform: store.platform, captureDeliveryLocation:captureEnabled() };
   download(`shift-profit-backup-${today()}.json`, JSON.stringify(data, null, 2), 'application/json');
   store.lastBackup = new Date().toISOString();
   toast('Backup saved to your Downloads folder');
@@ -1775,6 +1890,8 @@ async function importBackup(file) {
       .filter((d) => d && d.id && d.collectedAt && !isNaN(new Date(d.collectedAt)) && d.completedAt && !isNaN(new Date(d.completedAt)));
     const count = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
     if (!confirm(`Restore ${count(shifts.length, 'shift')} and ${count(places.length, 'place')} from this backup? It also contains ${count(deliveries.length, 'completed delivery')}. This replaces all records and the current order on the phone.`)) return;
+    stopDeliveryCapture(); deliveryCapture = null; showDeliveryCapture();
+    save('sp.captureDeliveryLocation', data.captureDeliveryLocation !== false);
     store.settings = { ...DEFAULT_SETTINGS, ...data.settings };
     store.shifts = shifts;
     store.places = places;
