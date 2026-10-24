@@ -18,7 +18,10 @@ const URL = 'http://localhost:8765/';
     const read = (key) => page.evaluate((k) => JSON.parse(localStorage.getItem(k) || 'null'), key);
     const go = async (hash) => { await page.goto(URL + hash); };
     const choose = async (id) => chooseProvider(page, id);
-    const summary = () => page.locator('[data-platform-summary]').innerText();
+    const summary = async () => {
+      if (await page.locator('.net-details').count() && !(await page.locator('.net-details').evaluate(e => e.open))) await page.locator('.net-details summary').click();
+      return page.locator('[data-platform-summary]').innerText();
+    };
     const screenshot = async (name) => {
       if (!process.env.SCREENSHOT_DIR) return;
       await page.waitForSelector('#toast', { state: 'hidden' });
@@ -188,7 +191,7 @@ const URL = 'http://localhost:8765/';
     });
     await go('#home');
     assert.ok((await summary()).includes('1 completed delivery'), 'daily fee overview includes unlinked work today');
-    assert.ok(!(await page.locator('.chart-total').innerText()).includes('99'), 'unlinked delivery cannot inflate live shift profit');
+    assert.ok(!(await page.locator('.net-total').innerText()).includes('99'), 'unlinked delivery cannot inflate live shift profit');
     assert.deepEqual(errors, []);
     console.log('Platform integration passed: default/order, locked identities, shared tabs, daily totals, legacy data, Places, corrections, forms, custom providers, backups and offline reload.');
   } finally {

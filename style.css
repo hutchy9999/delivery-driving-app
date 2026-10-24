@@ -255,10 +255,10 @@ a.btn.link { text-decoration: underline; }
   outline: 3px solid var(--accent); outline-offset: 2px; border-radius: 4px;
 }
 .compact-active { position: relative; }
-.compact-active .active-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto 48px; gap: 8px; }
+.compact-active .active-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding-right: 56px; }
 .shift-options { margin: 0; }
-.shift-options > summary { width: 48px; min-height: 48px; justify-content: center; font-size: 20px; border: 1px solid var(--border); border-radius: 12px; text-decoration: none; }
-.shift-options-panel { position: absolute; top: calc(100% - 4px); left: 14px; right: 14px; z-index: 4; padding: 12px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 6px 16px #0002; }
+.shift-options > summary { position: absolute; top: 14px; right: 14px; width: 48px; min-height: 48px; justify-content: center; font-size: 20px; border: 1px solid var(--border); border-radius: 12px; text-decoration: none; }
+.shift-options-panel { margin-top: 12px; padding: 12px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 6px 16px #0002; }
 .shift-options:not([open]) .shift-options-panel { display: none; }
 .shift-options p { margin: 0; }
 .shift-options .btn.link { color: var(--neg); }
@@ -271,6 +271,15 @@ a.btn.link { text-decoration: underline; }
 .chart-readout b small { font-weight: 400; }
 .chart-empty { text-align: center; padding: 18px 4px 6px; }
 .chart-empty p { margin: 6px 0; }
+.profit-chart .chart-total { font-size: 20px; }
+.net-today h2 { text-transform: none; letter-spacing: 0; color: var(--text); font-size: 17px; margin: 0; }
+.net-total.big { text-align: left; margin: 6px 0; }
+.net-today > p { margin: 4px 0; }
+.net-details summary { display: flex; align-items: center; min-height: 48px; color: var(--muted); font-size: 14px; text-decoration: underline; cursor: pointer; }
+.net-details summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.net-details:not([open]) > :not(summary) { display: none; }
+.net-details .line { gap: 12px; }
+.net-details .line > b { white-space: nowrap; }
 .compact-breakdown .selected-provider { box-shadow: none; }
 
 /* Keep offer inputs, verdict and acceptance together; details are optional. */

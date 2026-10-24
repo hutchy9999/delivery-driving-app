@@ -27,7 +27,7 @@ const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL:'
   ok(await p.getAttribute('[data-chart-range="today"]', 'aria-pressed') === 'true', 'Today is default');
   await tap('[data-chart-range="fortnight"]');
   ok((await p.textContent('#chart')).includes('No shifts in the last 2 weeks'), 'empty chart message');
-  ok(await p.locator('#chart svg').count() === 0, 'no empty axes before recording work');
+  ok(await p.locator('#chart svg').count() === 1, 'empty graph axes remain visible before recording work');
   ok(await p.locator('#chart-previous').count() === 0, 'no disabled point controls in empty state');
   ok(await p.locator('#chart .dot').count() === 0, 'no points when empty');
   // 1. first-run banner
