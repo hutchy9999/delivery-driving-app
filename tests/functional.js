@@ -1,3 +1,4 @@
+const { chooseProvider } = require('./provider-helper');
 const { chromium, devices } = require('playwright');
 const fs = require('fs');
 const { mockPhoton } = require('./photon-mock');
@@ -143,6 +144,7 @@ const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL:'
   await p.fill('[name=start]', '2026-10-01T18:00'); await p.fill('[name=end]', '2026-10-01T21:00');
   await submit(); ok((await hash()).startsWith('#shift/'), 'past shift saved');
   await tap('[data-tab=history]');
+  await chooseProvider(p, 'all');
   ok((await p.$$('.week')).length === 2, 'two week groups');
   ok((await p.$$('.shift-row')).length === 2, 'two shift rows');
   const firstDate = await p.textContent('.shift-row b');
@@ -185,7 +187,7 @@ const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL:'
 
   // 12b. order calculator (settings: £1.70/L, 32 MPG, 5p/mile, £1.16/hr, target £15, 15 mph, 8 min)
   await tap('[data-tab=order]');
-  await tap('[data-platform="just-eat"]');
+  await chooseProvider(p, 'just-eat');
   ok(await hash() === '#order', 'order tab opens');
   ok(await p.evaluate(() => document.activeElement.name) === 'fee', 'fee box focused');
   ok((await p.textContent('#order-result')).includes('Type the fee'), 'order prompt when empty');
@@ -334,7 +336,7 @@ const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL:'
   await p.evaluate(() => localStorage['sp.places'] = JSON.stringify(JSON.parse(localStorage['sp.places']).filter((x) => !x.osm)));
 
   // Places tab
-  await tap('[data-platform="all"]');
+  await chooseProvider(p, 'all');
   await tap('[data-tab=places]');
   ok((await p.textContent('.place-row')).includes("Nando's") && (await p.textContent('.place-row')).includes('spot saved'), 'place listed');
   await p.fill('#place-search', 'Wok');
@@ -383,7 +385,7 @@ const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL:'
   ok((await p.textContent('main')).includes('If you forgot to end it'), 'long shift warning when ending');
   await p.evaluate(() => localStorage.removeItem('sp.active'));
   // Not-on-shift reminder on the Order tab
-  await tap('[data-platform="just-eat"]');
+  await chooseProvider(p, 'just-eat');
   await tap('[data-tab=order]');
   ok(await p.isVisible('#start-from-order'), 'order tab warns when not on shift');
   await tap('#start-from-order');
@@ -397,7 +399,7 @@ const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL:'
   ok(!!(await p.$('.sugg [data-new]')), 'add button after two letters');
   await p.fill('.picker-input', '');
   // Places search matches the address
-  await tap('[data-platform="all"]');
+  await chooseProvider(p, 'all');
   await p.evaluate(() => { const ps = JSON.parse(localStorage['sp.places']); ps.push({ id: 'addr', name: 'Golden Wok', area: '', address: 'Oldham Street, Ancoats, M4 1AA', note: '', parkType: '', parkLimit: '', ease: '', spot: null, waits: [] }); localStorage['sp.places'] = JSON.stringify(ps); });
   await tap('[data-tab=places]'); await p.fill('#place-search', 'ancoats');
   ok((await p.textContent('#place-list')).includes('Golden Wok'), 'places search matches the address');
