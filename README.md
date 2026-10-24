@@ -7,6 +7,8 @@ A personal web app for delivery driving. It shows your **real profit per hour** 
 
 ## Using it
 
+After **Delivered**, completion saves immediately and a small card attempts a fresh location for up to **5 seconds**, stopping early at estimated accuracy of **30 m or better**. Keep this app visible; you can switch its tabs. **Skip** cancels without adding a location. At the deadline, a fresh fix within 100 m is saved as approximate; poorer/no fixes are not saved. Switching apps or locking the phone stops capture. Your browser requests location permission. Turn this off in **Settings → Delivery location**. Coordinates, accuracy and capture time stay local and are included in backups; no route or address lookup is performed. History shows saved locations and allows removal. Retry only while still at the drop-off; this records where you press Delivered, not the customer's address.
+
 Expand a completed delivery in History or a shift review and choose **Edit delivery** to correct the offer fee, offer miles or timestamps. Save explicitly, or Cancel without changes. Corrected records are marked and retain **Original recorded values**. Restaurant wait averages update with corrected arrival/collection timings. Unknown acceptance/arrival times may stay blank; collection and completion are required. Saved shift earnings/mileage remain separate final totals.
 
 After **End shift → Finish & save**, the **Shift review** page shows profit per full shift hour, recorded deliveries/hour, restaurant waiting and time outside timed deliveries. It compares actual shift mileage with entered offer mileage. Reopen it from History. Missing records are labelled; the mileage difference is not an exact measure of unpaid travel. No extra delivery-stage taps are needed.
