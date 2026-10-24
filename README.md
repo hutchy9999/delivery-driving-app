@@ -7,6 +7,8 @@ A personal web app for delivery driving. It shows your **real profit per hour** 
 
 ## Using it
 
+Expand a completed delivery in History or a shift review and choose **Edit delivery** to correct the offer fee, offer miles or timestamps. Save explicitly, or Cancel without changes. Corrected records are marked and retain **Original recorded values**. Restaurant wait averages update with corrected arrival/collection timings. Unknown acceptance/arrival times may stay blank; collection and completion are required. Saved shift earnings/mileage remain separate final totals.
+
 After **End shift → Finish & save**, the **Shift review** page shows profit per full shift hour, recorded deliveries/hour, restaurant waiting and time outside timed deliveries. It compares actual shift mileage with entered offer mileage. Reopen it from History. Missing records are labelled; the mileage difference is not an exact measure of unpaid travel. No extra delivery-stage taps are needed.
 
 Provider selection lives in **Settings → Delivery provider**, keeping the top of Shift, Order, Places and History free of selector pills. **Just Eat** is the default; choose Deliveroo, All or an additional named provider in Settings. Your explicit choice is remembered. Add another named provider in the same section. There is no generic Other option.

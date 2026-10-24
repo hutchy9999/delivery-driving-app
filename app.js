@@ -243,7 +243,7 @@ function render() {
   window.scrollTo(0, 0);
   const [route, id] = location.hash.slice(1).split('/');
   const view = $('#view');
-  const tab = { order: 'order', places: 'places', place: 'places', history: 'history', shift: 'history', edit: 'history', add: 'history', settings: 'settings' }[route] || 'home';
+  const tab = { order: 'order', places: 'places', place: 'places', history: 'history', shift: 'history', edit: 'history', 'delivery-edit': 'history', add: 'history', settings: 'settings' }[route] || 'home';
   document.querySelectorAll('.tab').forEach((b) => {
     b.classList.toggle('active', b.dataset.tab === tab);
     if (b.dataset.tab === tab) b.setAttribute('aria-current', 'page');
@@ -256,6 +256,7 @@ function render() {
     case 'add': return renderShiftForm(view, 'add');
     case 'edit': return renderShiftForm(view, 'edit', id);
     case 'shift': return renderShift(view, id);
+    case 'delivery-edit': return renderDeliveryEdit(view, id);
     case 'order': return renderOrder(view);
     case 'places': return renderPlaces(view);
     case 'place': return renderPlace(view, id);
@@ -1331,7 +1332,7 @@ function deliveryHistory(deliveries = store.deliveries) {
     <p class="muted small">Offer fees are recorded here. Enter final earnings, including tips, when you end your shift.</p>` +
     [...deliveries].sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt)).map((d) => `
       <details class="card delivery-record">
-        <summary><b>${esc(d.restaurantName || 'Delivery')}</b> ${platformBadge(d)}<small>${dateLabel(d.completedAt)} · ${timeLabel(d.completedAt)} · ${d.fee !== '' ? money(+d.fee) : 'Fee not entered'}</small></summary>
+        <summary><b>${esc(d.restaurantName || 'Delivery')}</b> ${platformBadge(d)}<small>${dateLabel(d.completedAt)} · ${timeLabel(d.completedAt)} · ${d.fee !== '' ? money(+d.fee) : 'Fee not entered'}${d.correctedAt ? ' · Corrected' : ''}</small></summary>
         <label class="field"><span>Delivery platform <small>(changes save automatically)</small></span>
           <select data-delivery-platform="${esc(d.id)}">
             <option value=""${!d.platformId ? ' selected' : ''}>Platform not recorded</option>
@@ -1347,7 +1348,99 @@ function deliveryHistory(deliveries = store.deliveries) {
         ${line('Collection to completion', interval(d.collectedAt, d.completedAt))}
         ${line('Acceptance to completion', interval(d.acceptedAt, d.completedAt))}
         ${d.miles !== '' ? line('Miles from offer', num(+d.miles)) : ''}
+        <a class="btn" href="#delivery-edit/${esc(d.id)}">Edit delivery</a>
+        ${d.correctedAt ? `<p class="muted small">Corrected ${dateLabel(d.correctedAt)} · ${timeLabel(d.correctedAt)}. Original values are kept in Edit delivery.</p>` : ''}
       </details>`).join('');
+}
+
+// Corrections retain the initial values; timestamps keep their exact precision
+// unless the corresponding input was changed explicitly.
+const DELIVERY_FIELDS = ['fee', 'miles', 'acceptedAt', 'arrivedAt', 'collectedAt', 'completedAt'];
+const DELIVERY_TIMES = { acceptedAt: 'Accepted', arrivedAt: 'At restaurant', collectedAt: 'Food collected', completedAt: 'Delivered' };
+function renderDeliveryEdit(view, id) {
+  const delivery = store.deliveries.find(d => d.id === id);
+  if (!delivery) return go('#history');
+  const back = delivery.shiftId && store.shifts.some(s => s.id === delivery.shiftId) ? '#shift/' + delivery.shiftId : '#history';
+  const localTime = value => {
+    if (!value || !Number.isFinite(+new Date(value))) return '';
+    const date = new Date(value);
+    return new Date(+date - date.getTimezoneOffset() * 60000).toISOString().slice(0, 19);
+  };
+  const initial = Object.fromEntries(Object.keys(DELIVERY_TIMES).map(key => [key, localTime(delivery[key])]));
+  const original = delivery.originalValues;
+  const originalLine = (label, value) => `<div class="line"><span>${label}</span><b>${esc(value)}</b></div>`;
+  view.innerHTML = `
+    <h2>Edit delivery</h2>
+    <p>${esc(delivery.restaurantName || 'Delivery')} ${platformBadge(delivery)}</p>
+    <p class="muted small">Correct a missed tap or entry while parked. Changes save only when you press Save corrections.</p>
+    <form id="delivery-edit-form" class="card" novalidate>
+      <div class="pair">
+        <label class="field"><span>Offer fee (£)</span><input name="fee" type="number" inputmode="decimal" min="0" step="0.01" value="${esc(delivery.fee ?? '')}"></label>
+        <label class="field"><span>Offer miles</span><input name="miles" type="number" inputmode="decimal" min="0" step="0.1" value="${esc(delivery.miles ?? '')}"></label>
+      </div>
+      ${Object.entries(DELIVERY_TIMES).map(([key, label]) => `<label class="field"><span>${label}${key === 'acceptedAt' || key === 'arrivedAt' ? ' <small>(optional if not recorded)</small>' : ''}</span><input name="${key}" type="datetime-local" step="1" value="${initial[key]}"></label>`).join('')}
+      <p class="muted small">Times are local to this device. Leave unknown optional timings blank. Food collected and Delivered are required.</p>
+      <p class="muted small">Offer corrections update live estimates and delivery analysis. Saved shift profit still uses the shift's final earnings and actual mileage; edit the shift separately if those totals are wrong.</p>
+      <p class="error" id="correction-error" role="alert" tabindex="-1" hidden></p>
+      <button class="btn primary huge" type="submit">Save corrections</button>
+      <a class="btn link" href="${esc(back)}">Cancel</a>
+    </form>
+    ${original ? `<details class="card delivery-record"><summary>Original recorded values</summary>
+      ${originalLine('Offer fee', original.fee !== '' && original.fee != null ? money(+original.fee) : 'Not recorded')}
+      ${originalLine('Offer miles', original.miles !== '' && original.miles != null ? num(+original.miles) + ' mi' : 'Not recorded')}
+      ${Object.entries(DELIVERY_TIMES).map(([key, label]) => originalLine(label, original[key] ? localTime(original[key]).replace('T', ' ') : 'Not recorded')).join('')}
+      <p class="muted small">Before the first correction. Latest correction: ${esc(dateLabel(delivery.correctedAt))} · ${esc(timeLabel(delivery.correctedAt))}.</p></details>` : ''}`;
+  const form = $('#delivery-edit-form');
+  form.onsubmit = event => {
+    event.preventDefault();
+    const fail = message => { const error = $('#correction-error'); error.textContent = message; error.hidden = false; error.focus(); };
+    const deliveries = store.deliveries;
+    const current = deliveries.find(d => d.id === id);
+    if (!current || JSON.stringify(current) !== JSON.stringify(delivery)) return fail('This record changed elsewhere. Reopen Edit delivery before saving.');
+    const values = {};
+    for (const key of ['fee', 'miles']) {
+      const input = form.elements[key], value = input.value.trim();
+      if (input.validity.badInput || (value !== '' && (!Number.isFinite(+value) || +value < 0))) return fail('Fee and mileage must be zero or more, or left blank.');
+      values[key] = value === '' ? '' : +value;
+    }
+    for (const key of Object.keys(DELIVERY_TIMES)) {
+      const value = form.elements[key].value;
+      if (!value && (key === 'collectedAt' || key === 'completedAt')) return fail('Enter Food collected and Delivered times.');
+      values[key] = value === initial[key] ? (delivery[key] || null) : value ? new Date(value).toISOString() : null;
+    }
+    let previous = null;
+    const parent = store.shifts.find(s => s.id === delivery.shiftId) || (store.active?.id === delivery.shiftId ? store.active : null);
+    for (const key of Object.keys(DELIVERY_TIMES)) {
+      if (!values[key]) continue;
+      const at = +new Date(values[key]);
+      if (!Number.isFinite(at) || at > Date.now()) return fail('Times must be valid and cannot be in the future.');
+      if (previous !== null && at < previous) return fail('Times must follow Accepted → At restaurant → Food collected → Delivered.');
+      if (parent && (at < +new Date(parent.start) || (parent.end && at > +new Date(parent.end)))) return fail('Delivery times must stay within the linked shift. Edit the shift first if its boundaries are wrong.');
+      previous = at;
+    }
+    const changed = DELIVERY_FIELDS.some(key => ['fee','miles'].includes(key)
+      ? String(delivery[key] ?? '') !== String(values[key]) : (delivery[key] || null) !== values[key]);
+    if (!changed) { toast('No changes to save'); return go(back); }
+    const corrected = { ...delivery, ...values, correctedAt: new Date().toISOString(),
+      originalValues: original || Object.fromEntries(DELIVERY_FIELDS.map(key => [key, delivery[key] ?? null])) };
+    const places = store.places;
+    const updatedPlaces = places.map(place => {
+      const hasWait = (place.waits || []).some(w => w.orderId === id);
+      if (place.id !== delivery.placeId && !hasWait) return place;
+      const waits = (place.waits || []).filter(w => w.orderId !== id);
+      const mins = values.arrivedAt ? (+new Date(values.collectedAt) - +new Date(values.arrivedAt)) / 60000 : null;
+      if (mins !== null && mins >= 0 && mins <= MAX_WAIT_MINS) waits.push({at:values.collectedAt,mins:Math.round(mins*10)/10,orderId:id,platformId:delivery.platformId || null});
+      waits.sort((a, b) => new Date(a.at) - new Date(b.at));
+      return { ...place, waits };
+    });
+    // Roll back the wait-cache update if saving the delivery fails.
+    try {
+      store.places = updatedPlaces;
+      try { store.deliveries = deliveries.map(d => d.id === id ? corrected : d); }
+      catch (error) { store.places = places; throw error; }
+    } catch { return fail('Could not save corrections. Check available storage and try again.'); }
+    toast('Delivery corrected'); go(back);
+  };
 }
 
 // ---------- Places tab ----------
