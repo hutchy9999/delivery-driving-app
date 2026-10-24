@@ -334,6 +334,9 @@ a.btn.link { text-decoration: underline; }
 .delivery-record summary small { display: block; }
 .delivery-record summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 .delivery-record .line { gap: 12px; flex-wrap: wrap; }
+.shift-review .line { gap: 12px; align-items: baseline; }
+.shift-review .line > span { min-width: 0; }
+.shift-review .line > b { white-space: nowrap; }
 
 /* Buttons with an icon */
 .btn.icon { display: flex; align-items: center; justify-content: center; gap: 10px; }
