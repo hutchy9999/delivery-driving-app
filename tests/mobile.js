@@ -16,6 +16,7 @@ const SCREENS = [
   ['chart: live deliveries', seed({ 'sp.active': JSON.stringify({id:'live',start:new Date(Date.now()-7200000).toISOString()}), 'sp.deliveries': JSON.stringify([{id:'job',shiftId:'live',fee:12,miles:4,completedAt:new Date(Date.now()-3600000).toISOString(),restaurantName:'A restaurant with a very long name for a narrow phone',platformId:'just-eat'}]) }), '#home', async p=>{await p.click('#chart-previous');}],
   ['chart: fortnight', seed({'sp.chartRange':JSON.stringify('fortnight')}), '#home'],
   ['chart: explanation', seed({'sp.chartRange':JSON.stringify('fortnight')}), '#home', async p=>{await p.click('.chart-method summary');}],
+  ['net earnings: breakdown', seed({'sp.chartRange':JSON.stringify('fortnight')}), '#home', async p=>{await p.click('.net-details summary');}],
   ['shift: unfinished order guard', seed({'sp.active':JSON.stringify({id:'pending-shift',start:new Date(Date.now()-3600000).toISOString()}),'sp.order':JSON.stringify({step:'deliver',platformId:'just-eat',acceptedAt:new Date().toISOString(),collectedAt:new Date().toISOString()})}), '#end'],
   ['shift: cancel options', seed({'sp.active':JSON.stringify({id:'running',start:new Date(Date.now()-3600000).toISOString()})}), '#home', async p=>{await p.click('.shift-options summary');}],
   ['offer: extra detail', seed({'sp.order':JSON.stringify({step:'offer',fee:'7',miles:'3'})}), '#order', async p=>{await p.click('.offer-extra summary');}],

@@ -291,7 +291,7 @@ document.addEventListener('change', (e) => {
 // ---------- Interactive profit charts ----------
 
 const CHART_DAYS = 14;
-const CH = 200, CL = 46, CR = 14, CT = 12, CB = 30;
+const CH = 180, CL = 46, CR = 14, CT = 12, CB = 30;
 let CW = 340;
 let chartSelection = null;
 let chartDragging = false;
@@ -333,8 +333,7 @@ function niceStep(range) {
   return [1, 2, 2.5, 5, 10].find((n) => n * power >= rough) * power;
 }
 
-function profitChartModel() {
-  const range = store.chartRange;
+function profitChartModel(range = store.chartRange) {
   if (range === 'fortnight') {
     const days = dailyTotals(store.shifts);
     const worked = days.filter((d) => d.worked);
@@ -346,7 +345,7 @@ function profitChartModel() {
   const shifts = store.shifts.filter((s) => toLocalInput(s.start).slice(0, 10) === todayKey);
   const points = profitTimeline(shifts, store.deliveries, store.active, store.settings).map((p) => ({ ...p, xValue: p.at, worked: true }));
   const last = points[points.length - 1];
-  const firstAt = points.length ? points[0].at : new Date().setHours(0, 0, 0, 0);
+  const firstAt = points.length ? points[0].at : new Date().setMinutes(0, 0, 0);
   const lastAt = last ? last.at : firstAt + 3600000;
   return { range, points, total: last?.profit || 0, estimated: !!last?.estimated, incomplete: !!last?.incomplete,
     hasData: points.length > 0, xMin: firstAt, xMax: Math.max(lastAt, firstAt + 60000) };
@@ -358,10 +357,6 @@ function chartCard() {
     <button class="btn" type="button" data-chart-range="today" aria-pressed="${model.range === 'today'}">Today</button>
     <button class="btn" type="button" data-chart-range="fortnight" aria-pressed="${model.range === 'fortnight'}">Last 2 weeks</button>
   </div>`;
-  if (!model.hasData) return `<section class="card chart profit-chart" id="chart">${periodButtons}
-    <div class="chart-heading"><h2>Profit before tax</h2><span class="muted small">All platforms</span></div>
-    <div class="chart-empty"><b>${model.range === 'today' ? 'No shift recorded today' : 'No shifts in the last 2 weeks'}</b><p class="muted small">${model.range === 'today' ? 'Start a shift to see your progress. Completed deliveries will build your profit graph.' : 'Your saved daily profit will appear here as you record shifts.'}</p></div>
-  </section>`;
   CW = chartWidth();
   const { points } = model;
   const values = points.map((p) => p.profit);
@@ -388,30 +383,30 @@ function chartCard() {
     <polygon class="profit-area" points="${x(points[0].xValue)},${y(0)} ${coordinates} ${x(points[points.length - 1].xValue)},${y(0)}"/>
     <polyline class="profit-line" points="${coordinates}"/>
     ${points.map((p, i) => p.worked ? `<circle class="dot${p.estimated ? ' estimated-dot' : ''}" data-point="${i}" cx="${x(p.xValue)}" cy="${y(p.profit)}" r="4"/>` : '').join('')}`
-    : `<text class="axis" x="${(CL + CW - CR) / 2}" y="${CH / 2}" text-anchor="middle">${model.range === 'today' ? 'Start a shift to see your progress' : 'No shifts in the last 2 weeks'}</text>`;
+    : `<text class="axis" x="${(CL + CW - CR) / 2}" y="${CH / 2}" text-anchor="middle">${model.range === 'today' ? 'Start a shift' : 'No shifts yet'}</text>`;
   const active = store.active;
   const overnight = active && toLocalInput(active.start).slice(0, 10) !== toLocalInput(new Date()).slice(0, 10);
   return `<section class="card chart profit-chart" id="chart">
     ${periodButtons}
-    <div class="chart-heading"><h2>Profit before tax</h2><span class="chart-estimate">${model.estimated ? 'Estimated live' : 'Saved totals'}</span></div>
-    <div class="chart-headline"><div class="chart-total ${model.total < 0 ? 'neg' : ''}">${money(model.total)}</div><div>${model.range === 'fortnight' ? `<b>${model.count} days</b><small>worked / 14 days</small>` : ''}</div></div>
-    <p class="muted small chart-status">All platforms · after ${model.estimated ? 'estimated expenses' : 'fuel, maintenance and insurance'}</p>
+    <div class="chart-heading"><h2>Profit before tax</h2><span class="chart-estimate">${!model.hasData ? 'No activity yet' : model.estimated ? 'Estimated live' : 'Saved totals'}</span></div>
+    ${model.range === 'fortnight' ? `<div class="chart-headline"><div class="chart-total ${model.total < 0 ? 'neg' : ''}">${money(model.total)} <small>period total</small></div><div><b>${model.count} days</b><small>worked / 14 days</small></div></div>` : ''}
+    <p class="muted small chart-status">All platforms${!model.hasData ? (model.range === 'fortnight' ? ' · No shifts in the last 2 weeks' : '') : ' · after ' + (model.estimated ? 'estimated expenses' : 'fuel, maintenance and insurance')}</p>
     <svg viewBox="0 0 ${CW} ${CH}" role="img" aria-label="${model.range === 'today' ? 'Cumulative profit by time' : 'Daily profit for the last 2 weeks'}. ${money(model.total)} ${model.estimated ? 'estimated ' : ''}profit before tax. Tap or drag to explore points.">
       ${grid}${labels}${trace}
       <line class="cross" id="cross" x1="0" x2="0" y1="${CT}" y2="${CH - CB}" visibility="hidden"/>
       <circle class="chart-marker" id="chart-marker" cx="0" cy="0" r="7" visibility="hidden"/>
     </svg>
     <p class="muted small chart-x-title">${model.range === 'today' ? 'Time' : 'Date'}</p>
-    <div class="chart-tools">
+    ${model.hasData ? `<div class="chart-tools">
       <button type="button" class="btn chart-step" id="chart-previous" aria-label="Previous profit point"${!model.hasData ? ' disabled' : ''}>‹</button>
       <div class="chart-readout" id="chart-info" aria-live="polite">Your profit appears here as you record work.</div>
       <button type="button" class="btn chart-step" id="chart-next" aria-label="Next profit point"${!model.hasData ? ' disabled' : ''}>›</button>
     </div>
-    <p class="muted small chart-position" id="chart-position">${model.hasData ? 'Tap or slide across the graph' : 'No recorded points yet'}</p>
+    <p class="muted small chart-position" id="chart-position">Tap or slide across the graph</p>` : ''}
     ${model.range === 'fortnight' ? `<div class="row3"><div><b>${model.count}</b><small>days worked</small></div><div><b>${duration(model.hours)}</b><small>shift hours</small></div><div><b>${money(model.count ? model.total / model.count : 0)}</b><small>avg profit / day</small></div></div>` : ''}
-    <details class="chart-method"><summary>How this is estimated</summary><p class="muted small">${model.range === 'today'
+    ${model.hasData ? `<details class="chart-method"><summary>How this is estimated</summary><p class="muted small">${model.range === 'today'
       ? 'Live estimates use completed offer fees and miles, plus insurance for all elapsed shift time. Unrecorded travel is not included. Saved shift totals reconcile to final earnings and mileage; between-job costs are estimated.'
-      : 'Daily totals are grouped by shift start date. Any shift still running is estimated.'} Costs use your configured fuel, maintenance and insurance allowances, before tax; depreciation is not included.</p></details>
+      : 'Daily totals are grouped by shift start date. Any shift still running is estimated.'} Costs use your configured fuel, maintenance and insurance allowances, before tax; depreciation is not included.</p></details>` : ''}
     ${model.incomplete ? '<p class="warn-note small">Missing offer fees or mileage: live profit is incomplete.</p>' : ''}${overnight && model.range === 'today' ? '<p class="muted small">Includes the current overnight shift from its start.</p>' : ''}
   </section>`;
 }
@@ -427,7 +422,7 @@ function bindChart() {
   });
   const model = profitChartModel();
   const svg = $('#chart svg');
-  if (!svg) return;
+  if (!svg || !model.hasData) return;
   const points = model.points;
   const x = (p) => CL + (p.xValue - model.xMin) / (model.xMax - model.xMin) * (CW - CL - CR);
   const values = points.map((p) => p.profit);
@@ -472,6 +467,13 @@ function bindChart() {
 
 function refreshChart(force = false) {
   if (!$('#chart') || (!force && chartDragging)) return;
+  if ($('#net-today')) {
+    const open = !!$('.net-details')?.open;
+    const focused = document.activeElement?.matches('#net-today summary');
+    $('#net-today').outerHTML = netEarningsCard();
+    $('.net-details').open = open;
+    if (focused) $('#net-today summary').focus({ preventScroll: true });
+  }
   const focused = document.activeElement?.closest('#chart') ? document.activeElement : null;
   const focusSelector = focused?.id ? `#${focused.id}` : focused?.dataset.chartRange
     ? `[data-chart-range="${focused.dataset.chartRange}"]` : focused?.matches('summary') ? '.chart-method summary' : null;
@@ -487,6 +489,31 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) refr
 
 
 // ---------- Home ----------
+
+function netEarningsCard() {
+  const model = profitChartModel('today');
+  const point = model.points[model.points.length - 1];
+  const deliveries = todaysDeliveries();
+  const rows = new Map();
+  for (const d of deliveries) {
+    const name = platformName(d.platformId, d.platformName);
+    rows.set(name, (rows.get(name) || 0) + (Number(d.fee) || 0));
+  }
+  return `<section class="card net-today" id="net-today" data-platform-summary>
+    <h2>Net earnings today</h2>
+    <div class="big net-total ${model.total < 0 ? 'neg' : ''}">${money(model.total)}</div>
+    <p class="muted small">All platforms · ${model.estimated ? 'estimated · ' : ''}before tax</p>
+    <p class="muted small">${deliveries.length} completed ${deliveries.length === 1 ? 'delivery' : 'deliveries'}</p>
+    <details class="net-details"><summary>Payments and expenses</summary>
+      <div class="line"><span>Recorded shift earnings</span><b>${money(point?.earnings || 0)}</b></div>
+      <div class="line"><span>Fuel, maintenance & insurance</span><b>−${money(point?.costs || 0)}</b></div>
+      ${[...rows].map(([name, fees]) => `<div class="line" data-provider-payment><span>${esc(name)} payments</span><b>${money(fees)}</b></div>`).join('')}
+      <p class="muted small">Provider payments are before costs. Live net uses completed linked orders and elapsed insurance; unrecorded travel can make it optimistic. Final earnings and total mileage are reconciled when saving the shift. Saved shifts are grouped by start date. Figures exclude depreciation.</p>
+    </details>
+    ${store.active && toLocalInput(store.active.start).slice(0, 10) !== toLocalInput(new Date()).slice(0, 10) ? '<p class="muted small">Includes the current overnight shift from its start.</p>' : ''}
+    ${model.incomplete ? '<p class="warn-note small">Missing offer fees or mileage: net earnings are incomplete.</p>' : ''}
+  </section>`;
+}
 
 function hasUnfinishedOrder() {
   const order = store.order;
@@ -539,16 +566,16 @@ function renderHome(view) {
 
   if (active) {
     view.innerHTML = `
+      ${chartCard(shifts)}
+      ${netEarningsCard()}
       <div class="card active-shift compact-active">
         <div class="active-heading"><div><b>On shift · <span id="clock">${duration((Date.now() - new Date(active.start)) / 3600000)}</span></b><small>Started ${timeLabel(active.start)} · all platforms</small></div><button class="btn danger-outline" id="end">End shift</button>
-          <details class="shift-options"><summary aria-label="Shift options">•••</summary><div class="shift-options-panel">${active.startOdo ? `<p class="small muted">Starting odometer: ${esc(active.startOdo)}</p>` : ''}<button class="btn link danger-outline" id="cancel">Cancel this shift</button></div></details>
         </div>
+        <details class="shift-options"><summary aria-label="Shift options">•••</summary><div class="shift-options-panel">${active.startOdo ? `<p class="small muted">Starting odometer: ${esc(active.startOdo)}</p>` : ''}<button class="btn link danger-outline" id="cancel">Cancel this shift</button></div></details>
         ${hasUnfinishedOrder() ? '<a class="btn resume-order" href="#order">Continue current order →</a>' : ''}
         ${longShiftNote(active)}
       </div>
-      ${settingsNote}
-      ${platformSummary(todaysDeliveries(), 'Today', true)}
-      ${chartCard(shifts)}`;
+      ${settingsNote}`;
     timer = setInterval(() => {
       const c = $('#clock');
       if (c) c.textContent = duration((Date.now() - new Date(active.start)) / 3600000);
@@ -574,6 +601,8 @@ function renderHome(view) {
   const lastOdo = shifts.length ? shifts[0].endOdo : '';
 
   view.innerHTML = `
+    ${chartCard(shifts)}
+    ${netEarningsCard()}
     <div class="card shift-start">
       <button class="btn primary" id="start">Start shift</button>
       <label class="field">
@@ -582,8 +611,6 @@ function renderHome(view) {
       </label>
     </div>
     ${settingsNote}
-    ${platformSummary(todaysDeliveries(), 'Today', true)}
-    ${chartCard(shifts)}
     ${shifts.length ? `<details class="card saved-summaries"><summary>Saved shift summaries</summary>${summaryCard('Today · all platforms', todays)}${summaryCard('This week · all platforms', weeks)}</details>` : ''}
     ${backupNote()}
     <a class="btn link" href="#add">Forgot to start? Add a past shift</a>`;
