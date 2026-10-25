@@ -14,6 +14,8 @@ const VENUES = [
 const AREAS = { leeds: feature('Leeds', { osm_id: 9, osm_key: 'place', osm_value: 'city', county: 'West Yorkshire' }, -1.5491, 53.7997) };
 
 async function mockPhoton(ctx, { fail = () => false, log = [] } = {}) {
+  // Existing suites deliberately exercise the Detailed workflow.
+  await ctx.addInitScript(() => { if (!localStorage.getItem('sp.workflowMode')) localStorage['sp.workflowMode'] = JSON.stringify('detailed'); });
   await ctx.route('https://photon.komoot.io/**', (route) => {
     const url = new URL(route.request().url());
     log.push(url);

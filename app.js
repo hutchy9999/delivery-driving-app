@@ -130,6 +130,7 @@ const hoursSince = (iso) => (Date.now() - new Date(iso)) / 3600000;
 // One foreground-only, bounded capture. This is a completion point, not a route.
 let deliveryCapture = null;
 const captureEnabled = () => load('sp.captureDeliveryLocation', true) === true;
+const workflowMode = () => load('sp.workflowMode', 'simple') === 'detailed' ? 'detailed' : 'simple';
 function stopDeliveryCapture() {
   if (!deliveryCapture) return;
   clearTimeout(deliveryCapture.timeout);
@@ -1231,19 +1232,24 @@ function renderOrder(view) {
   const order = store.order;
   const active = order.step !== 'offer' || !!order.acceptedAt;
   if (!active && store.platform === 'all') return renderOrderOverview(view);
-  if (order.step === 'pickup') renderPickup(view);
+  if (active && order.workflowMode === 'simple') renderDeliver(view);
+  else if (order.step === 'pickup') renderPickup(view);
   else if (order.step === 'waiting') renderWaiting(view);
   else if (order.step === 'deliver') renderDeliver(view);
   else renderOffer(view);
   const record = active ? order : { platformId: store.platform };
-  $('.steps', view).insertAdjacentHTML('afterend', `<div class="order-platform-context">${platformBadge(record)}
-    ${active && store.platform !== 'all' && store.platform !== order.platformId ? `<p class="muted small">Current order: ${esc(platformName(order.platformId, order.platformName))}. Changing provider in Settings does not change this order.</p>` : ''}</div>`);
+  const context = `<div class="order-platform-context">${platformBadge(record)}
+    ${active && store.platform !== 'all' && store.platform !== order.platformId ? `<p class="muted small">Current order: ${esc(platformName(order.platformId, order.platformName))}. Changing provider in Settings does not change this order.</p>` : ''}</div>`;
+  const steps = $('.steps', view);
+  if (steps) steps.insertAdjacentHTML('afterend', context);
+  else view.insertAdjacentHTML('afterbegin', context);
 }
 
 function renderOffer(view) {
   const o = store.order;
+  const simple = o.acceptedAt ? o.workflowMode === 'simple' : workflowMode() === 'simple';
   view.innerHTML = `
-    ${stepPills('offer')}
+    ${simple ? '' : stepPills('offer')}
     <form id="of" class="card offer-entry" novalidate>
       <div class="pair">
         <label class="field"><span>Fee (£)</span>
@@ -1252,28 +1258,30 @@ function renderOffer(view) {
           <input name="miles" type="number" inputmode="decimal" step="0.1" min="0" placeholder="e.g. 2.5" value="${esc(o.miles)}"></label>
       </div>
       <div id="order-result" class="offer-preview" aria-live="polite"></div>
-      <div id="offer-place"></div>
-      <button class="btn primary huge" type="button" id="take">Picked up</button>
-      <details class="offer-extra"${o.mins !== '' ? ' open' : ''}><summary>Offer time & calculation</summary>
+      ${simple ? '' : '<div id="offer-place"></div>'}
+      <p class="error" id="offer-error" role="alert" hidden></p>
+      <button class="btn primary huge" type="button" id="take">${simple ? 'Confirm' : 'Picked up'}</button>
+      ${simple ? '<p class="muted small">Estimated from mileage and your configured speed and stop allowance, before tax. Actual waiting and return travel may change the result.</p>' : `<details class="offer-extra"${o.mins !== '' ? ' open' : ''}><summary>Offer time & calculation</summary>
         <label class="field"><span>Minutes <small>(optional, if the offer shows a time)</small></span>
           <input name="mins" type="number" inputmode="numeric" min="0" placeholder="Leave blank to estimate" value="${esc(o.mins)}"></label>
         <p class="muted small" id="offer-calculation"></p>
-      </details>
+      </details>`}
       <button class="btn link" type="button" id="clear">${o.acceptedAt ? 'Cancel this order' : 'Clear for next order'}</button>
     </form>`;
 
   const f = $('#of');
   const update = () => {
-    setOrder({ fee: f.fee.value.trim(), miles: f.miles.value.trim(), mins: f.mins.value.trim() });
+    $('#offer-error').hidden = true;
+    setOrder({ fee: f.fee.value.trim(), miles: f.miles.value.trim(), mins: simple ? '' : f.mins.value.trim() });
     const { fee: feeText, miles: milesText, mins: minsText, placeId } = store.order;
     const s = store.settings;
-    const place = getPlace(placeId);
+    const place = simple ? null : getPlace(placeId);
     const wait = place ? avgWait(place) : null;
     const fee = parseFloat(feeText), miles = parseFloat(milesText), mins = parseFloat(minsText);
     const r = feeText !== '' && milesText !== '' && fee >= 0 && miles >= 0 ? calcOrder(s, fee, miles, mins, wait) : null;
     if (!r) {
       $('#order-result').innerHTML = `<div class="offer-empty muted">Type the fee and miles.<br>Your estimated £/hr appears here.</div>`;
-      $('#offer-calculation').textContent = 'Leave Minutes blank to estimate time from mileage, your configured speed and restaurant wait.';
+      if ($('#offer-calculation')) $('#offer-calculation').textContent = 'Leave Minutes blank to estimate time from mileage, your configured speed and restaurant wait.';
       return;
     }
     const [icon, word] = { good: ['✓', 'Worth taking'], ok: ['!', 'Borderline'], poor: ['✕', 'Not worth it'] }[r.grade];
@@ -1290,7 +1298,7 @@ function renderOffer(view) {
           <div><b>${Math.round(r.mins)} min</b><small>${r.estimated ? 'estimated' : 'from offer'}</small></div>
         </div>
       </div>`;
-    $('#offer-calculation').innerHTML = `${r.estimated ? `Time estimated: ${num(miles)} mi at ${num(s.townMph)} mph + ${stops}. ` : 'Uses the entered offer time. '}Worth taking from ${money(s.goodPerHour)}/hr, borderline from ${money(s.okPerHour)}/hr`;
+    if ($('#offer-calculation')) $('#offer-calculation').innerHTML = `${r.estimated ? `Time estimated: ${num(miles)} mi at ${num(s.townMph)} mph + ${stops}. ` : 'Uses the entered offer time. '}Worth taking from ${money(s.goodPerHour)}/hr, borderline from ${money(s.okPerHour)}/hr`;
   };
 
   const showPlace = () => {
@@ -1315,24 +1323,30 @@ function renderOffer(view) {
   f.addEventListener('input', (e) => { if (!e.target.classList.contains('picker-input')) update(); });
   f.onsubmit = (e) => e.preventDefault();
   $('#take').onclick = () => {
+    if (simple && (f.fee.value === '' || f.miles.value === '' || !Number.isFinite(+f.fee.value) || !Number.isFinite(+f.miles.value) || +f.fee.value < 0 || +f.miles.value < 0)) {
+      $('#offer-error').textContent = 'Enter the fee and mileage (zero or more).'; $('#offer-error').hidden = false; return;
+    }
     const platform = store.platforms.find((p) => p.id === store.platform);
     if (!store.order.acceptedAt && !platform) return;
+    // Starting another job needs no separate dismissal of the last GPS card.
+    if (deliveryCapture) { stopDeliveryCapture(); deliveryCapture = null; showDeliveryCapture(); }
     const active = store.active;
     // Also give shifts started by an older app version a stable link.
     if (active && !active.id) store.active = { ...active, id: newId() };
     const order = store.order;
     const place = getPlace(order.placeId);
-    setOrder({ step: 'pickup', id: order.id || newId(), acceptedAt: order.acceptedAt || new Date().toISOString(),
+    setOrder({ step: simple ? 'deliver' : 'pickup', id: order.id || newId(), acceptedAt: order.acceptedAt || new Date().toISOString(),
+      workflowMode:simple ? 'simple' : 'detailed', ...(simple ? {placeId:null,arrivedAt:null,collectedAt:null,mins:''} : {}),
       platformId: order.acceptedAt ? order.platformId : platform.id,
       platformName: order.acceptedAt ? order.platformName : platform.name,
-      shiftId: order.shiftId || store.active?.id || null, restaurantName: place?.name || '', settings: order.settings || store.settings });
+      shiftId: order.shiftId || store.active?.id || null, restaurantName: simple ? '' : place?.name || '', settings: order.settings || store.settings });
     render();
   };
   $('#clear').onclick = () => {
     if (store.order.acceptedAt && !confirm('Cancel this accepted order? No completed delivery will be saved.')) return;
     store.order = { ...EMPTY_ORDER }; render();
   };
-  showPlace();
+  if (!simple) showPlace();
   update();
   if (store.order.fee === '') f.fee.focus();
 }
@@ -1427,22 +1441,23 @@ function renderWaiting(view) {
 
 function renderDeliver(view) {
   const o = store.order;
+  const simple = o.workflowMode === 'simple';
   const place = getPlace(o.placeId);
-  const elapsed = () => duration(Math.max(0, Date.now() - new Date(o.collectedAt)) / 3600000);
+  const elapsed = () => duration(Math.max(0, Date.now() - new Date(simple ? o.acceptedAt : o.collectedAt)) / 3600000);
   view.innerHTML = `
-    ${stepPills('deliver')}
+    ${simple ? '' : stepPills('deliver')}
     <div class="card center">
-      <h2>Delivery in progress</h2>
+      <h2>${simple ? 'Job in progress' : 'Delivery in progress'}</h2>
       ${place || o.restaurantName ? `<p><b>${esc(place?.name || o.restaurantName)}</b></p>` : ''}
-      <p class="muted">Since collecting the food</p>
+      <p class="muted">${simple ? 'Since confirming the job' : 'Since collecting the food'}</p>
       <div class="clock" id="delivery-timer" role="timer">${elapsed()}</div>
-      <button class="btn primary huge" id="delivered">Delivered</button>
+      <button class="btn primary huge" id="delivered">${simple ? 'Finish job' : 'Delivered'}</button>
       <p class="muted small">Tap once the handover is finished and you're back in your car, safely parked.</p>
     </div>
     <div class="card">
-      <p class="muted small">Includes driving, parking, walking and handover. Your shift clock keeps counting between orders.</p>
+      <p class="muted small">${simple ? 'No intermediate steps to record. Your shift clock keeps counting between jobs.' : 'Includes driving, parking, walking and handover. Your shift clock keeps counting between orders.'}</p>
       ${o.fee !== '' ? `<div class="line"><span>Offer fee</span><b>${money(+o.fee)}</b></div>` : ''}
-      <div class="line"><span>Food collected</span><b>${timeLabel(o.collectedAt)}</b></div>
+      ${simple ? `<div class="line"><span>Offer miles</span><b>${num(+o.miles)} mi</b></div>` : `<div class="line"><span>Food collected</span><b>${timeLabel(o.collectedAt)}</b></div>`}
     </div>
     <p id="delivery-error" class="error" role="alert" hidden></p>
     <button class="btn link" id="cancel-delivery">Cancel this delivery</button>`;
@@ -1467,7 +1482,7 @@ function renderDeliver(view) {
     if (captureEnabled()) startDeliveryCapture(delivery.id);
   };
   $('#cancel-delivery').onclick = () => {
-    if (!confirm('Cancel this delivery? No completed delivery will be saved. The restaurant wait already recorded will be kept.')) return;
+    if (!confirm(simple ? 'Cancel this job? No completed delivery will be saved.' : 'Cancel this delivery? No completed delivery will be saved. The restaurant wait already recorded will be kept.')) return;
     store.order = { ...EMPTY_ORDER };
     render();
   };
@@ -1492,7 +1507,8 @@ function deliveryHistory(deliveries = store.deliveries) {
         </label>
         ${line('Accepted', d.acceptedAt ? timeLabel(d.acceptedAt) : 'Not recorded')}
         ${line('At restaurant', d.arrivedAt ? timeLabel(d.arrivedAt) : 'Not recorded')}
-        ${line('Food collected', timeLabel(d.collectedAt))}
+        ${d.workflowMode === 'simple' ? '<p class="muted small">Simple mode · restaurant stages not recorded.</p>' : ''}
+        ${line('Food collected', d.collectedAt ? timeLabel(d.collectedAt) : 'Not recorded')}
         ${line('Delivered', timeLabel(d.completedAt))}
         ${line('Restaurant wait', deliveryWaitMinutes(d) !== null ? num(Math.round(deliveryWaitMinutes(d)*10)/10) + ' min' + (manualWaitMinutes(d) !== null ? ' · manual' : '') : 'Not recorded')}
         ${line('Collection to completion', interval(d.collectedAt, d.completedAt))}
@@ -1534,8 +1550,8 @@ function renderDeliveryEdit(view, id) {
       </div>
       <label class="field"><span>Restaurant wait (minutes)</span><input name="waitMins" type="number" inputmode="decimal" min="0" max="1440" step="0.1" value="${initialWait}" placeholder="e.g. 7"></label>
       <p class="muted small">Enter the actual wait if a button was pressed late or just to move on. This overrides the wait duration without changing timestamps. Clear to use the timestamps again.</p>
-      ${Object.entries(DELIVERY_TIMES).map(([key, label]) => `<label class="field"><span>${label}${key === 'acceptedAt' || key === 'arrivedAt' ? ' <small>(optional if not recorded)</small>' : ''}</span><input name="${key}" type="datetime-local" step="1" value="${initial[key]}"></label>`).join('')}
-      <p class="muted small">Times are local to this device. Leave unknown optional timings blank. Food collected and Delivered are required.</p>
+      ${Object.entries(DELIVERY_TIMES).map(([key, label]) => `<label class="field"><span>${label}${key === 'acceptedAt' || key === 'arrivedAt' || (key === 'collectedAt' && delivery.workflowMode === 'simple') ? ' <small>(optional if not recorded)</small>' : ''}</span><input name="${key}" type="datetime-local" step="1" value="${initial[key]}"></label>`).join('')}
+      <p class="muted small">Times are local to this device. Leave unknown optional timings blank. ${delivery.workflowMode === 'simple' ? 'Delivered is required; restaurant stages were not recorded in Simple mode.' : 'Food collected and Delivered are required.'}</p>
       <p class="muted small">Offer corrections update live estimates and delivery analysis. Saved shift profit still uses the shift's final earnings and actual mileage; edit the shift separately if those totals are wrong.</p>
       <p class="error" id="correction-error" role="alert" tabindex="-1" hidden></p>
       <button class="btn primary huge" type="submit">Save corrections</button>
@@ -1569,7 +1585,7 @@ function renderDeliveryEdit(view, id) {
     }
     for (const key of Object.keys(DELIVERY_TIMES)) {
       const value = form.elements[key].value;
-      if (!value && (key === 'collectedAt' || key === 'completedAt')) return fail('Enter Food collected and Delivered times.');
+      if (!value && (key === 'completedAt' || (key === 'collectedAt' && delivery.workflowMode !== 'simple'))) return fail(delivery.workflowMode === 'simple' ? 'Enter the Delivered time.' : 'Enter Food collected and Delivered times.');
       values[key] = value === initial[key] ? (delivery[key] || null) : value ? new Date(value).toISOString() : null;
     }
     let previous = null;
@@ -1776,6 +1792,14 @@ function renderSettings(view) {
 
   view.innerHTML = `
     <section class="card">
+      <h2>Job workflow</h2>
+      <div class="chips two" role="group" aria-label="Job workflow">
+        <button type="button" data-workflow="simple" aria-pressed="${workflowMode() === 'simple'}">Simple</button>
+        <button type="button" data-workflow="detailed" aria-pressed="${workflowMode() === 'detailed'}">Detailed</button>
+      </div>
+      <p class="muted small">Simple: fee + miles → Confirm → Finish job, then optional location capture. Detailed adds restaurant selection, arrival and food collection timings. Applies to your next job; an accepted job keeps its workflow.</p>
+    </section>
+    <section class="card">
       <h2>Delivery location</h2>
       <button class="btn" id="capture-setting" aria-pressed="${captureEnabled()}">${captureEnabled() ? 'On' : 'Off'} · Save location after Delivered</button>
       <p class="muted small">Tries for up to 5 seconds while this app is visible. Stops early at estimated accuracy of 30 m or better; at the deadline a fix up to 100 m is saved and labelled approximate. Skip cancels without adding a location. Your browser asks for permission.</p>
@@ -1833,6 +1857,13 @@ function renderSettings(view) {
     if (!captureEnabled() && deliveryCapture?.status === 'finding') finishDeliveryCapture('skipped');
     render();
   };
+  document.querySelectorAll('[data-workflow]').forEach(button => {
+    button.onclick = () => {
+      save('sp.workflowMode',button.dataset.workflow);
+      document.querySelectorAll('[data-workflow]').forEach(choice => choice.setAttribute('aria-pressed',String(choice === button)));
+      toast((workflowMode() === 'simple' ? 'Simple' : 'Detailed') + ' workflow selected for your next job');
+    };
+  });
   $('#platform-form').onsubmit = (e) => {
     e.preventDefault();
     const name = e.currentTarget.elements.platformName.value.trim();
@@ -1934,7 +1965,7 @@ function exportCsv() {
 }
 
 function exportBackup() {
-  const data = { app: 'shift-profit', version: 3, exportedAt: new Date().toISOString(), settings: store.settings, shifts: store.shifts, deliveries: store.deliveries, order: store.order, active: store.active, places: store.places, area: store.area, platforms: store.platforms, selectedPlatform: store.platform, captureDeliveryLocation:captureEnabled() };
+  const data = { app: 'shift-profit', version: 3, exportedAt: new Date().toISOString(), settings: store.settings, shifts: store.shifts, deliveries: store.deliveries, order: store.order, active: store.active, places: store.places, area: store.area, platforms: store.platforms, selectedPlatform: store.platform, captureDeliveryLocation:captureEnabled(), workflowMode:workflowMode() };
   download(`shift-profit-backup-${today()}.json`, JSON.stringify(data, null, 2), 'application/json');
   store.lastBackup = new Date().toISOString();
   toast('Backup saved to your Downloads folder');
@@ -1952,11 +1983,12 @@ async function importBackup(file) {
       .filter((p) => p && p.id && p.name)
       .map((p) => ({ area: '', note: '', parkType: '', parkLimit: '', ease: '', spot: null, ...p, waits: Array.isArray(p.waits) ? p.waits : [] }));
     const deliveries = (Array.isArray(data.deliveries) ? data.deliveries : [])
-      .filter((d) => d && d.id && d.collectedAt && !isNaN(new Date(d.collectedAt)) && d.completedAt && !isNaN(new Date(d.completedAt)));
+      .filter((d) => d && d.id && (d.workflowMode === 'simple' || (d.collectedAt && !isNaN(new Date(d.collectedAt)))) && d.completedAt && !isNaN(new Date(d.completedAt)));
     const count = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
     if (!confirm(`Restore ${count(shifts.length, 'shift')} and ${count(places.length, 'place')} from this backup? It also contains ${count(deliveries.length, 'completed delivery')}. This replaces all records and the current order on the phone.`)) return;
     stopDeliveryCapture(); deliveryCapture = null; showDeliveryCapture();
     save('sp.captureDeliveryLocation', data.captureDeliveryLocation !== false);
+    if (['simple','detailed'].includes(data.workflowMode)) save('sp.workflowMode',data.workflowMode);
     store.settings = { ...DEFAULT_SETTINGS, ...data.settings };
     store.shifts = shifts;
     store.places = places;
@@ -1965,7 +1997,7 @@ async function importBackup(file) {
     store.platform = data.selectedPlatform === 'all' || store.platforms.some((p) => p.id === data.selectedPlatform) ? data.selectedPlatform : 'just-eat';
     const order = data.order;
     store.order = order && ['offer', 'pickup', 'waiting', 'deliver'].includes(order.step) &&
-      (order.step !== 'deliver' || (order.collectedAt && !isNaN(new Date(order.collectedAt)))) &&
+      (order.step !== 'deliver' || (order.workflowMode === 'simple' ? order.acceptedAt && !isNaN(new Date(order.acceptedAt)) : order.collectedAt && !isNaN(new Date(order.collectedAt)))) &&
       (order.step !== 'waiting' || (order.arrivedAt && !isNaN(new Date(order.arrivedAt))))
       ? { ...EMPTY_ORDER, ...order } : { ...EMPTY_ORDER };
     if (data.area && isFinite(data.area.lat) && isFinite(data.area.lon)) store.area = data.area;

@@ -62,7 +62,7 @@ const SIZES = [['Pixel 7 (412px)', 412], ['small phone (320px)', 320], ['large t
     const p = await ctx.newPage(); p.on('dialog', (d) => d.dismiss());
     await p.goto(U);
     for (const [name, data, hash, act] of SCREENS) {
-      await p.evaluate((d) => { localStorage.clear(); if (d) for (const k in d) localStorage[k] = d[k]; }, data);
+      await p.evaluate((d) => { localStorage.clear();localStorage['sp.workflowMode']=JSON.stringify('detailed'); if (d) for (const k in d) localStorage[k] = d[k]; }, data);
       await p.goto(U + '#history'); await p.goto(U + hash); await p.waitForTimeout(120);
       if (act) { await act(p); await p.waitForTimeout(120); }
       const where = `${name} [${scheme}, ${sizeName}]`;

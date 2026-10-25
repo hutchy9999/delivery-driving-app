@@ -235,3 +235,15 @@ New checks exercise place renaming and preserved notes, Edit wait return navigat
 ## Follow-up: Order CTA wording (25 October 2026)
 
 At James's explicit request, the first Order CTA now reads Picked up instead of Taking it -> Pickup. This is a label-only change: it still accepts the offer and opens the Pickup stage; arrival, restaurant waiting and the later Got the food collection timestamp retain their existing behaviour. Cache v27.
+
+## Follow-up: Simple and Detailed job workflows (25 October 2026)
+
+James found duplicating every delivery status across two apps too demanding and requested a minimal option. Settings now starts with Job workflow: Simple (default) or Detailed. Simple offers only fee, offer miles and the existing estimated verdict, followed by Confirm. That snapshots provider, shift id, settings, acceptance time and workflow mode, then shows Finish job with no restaurant/arrival/collection stages. Completion saves immediately, returns to the offer screen and invokes the existing optional five-second foreground location capture. Starting/ending shifts, odometers, final earnings, shared expenses, charts and reconciliation remain unchanged.
+
+Detailed retains postcode/restaurant selection, progress pills and arrival/wait/food-collection actions. Each accepted job keeps its mode despite preference changes; existing in-progress orders without a mode retain their Detailed workflow. The selected mode affects subsequent jobs. Simple estimates ignore hidden restaurant/manual-time draft data and explain that configured speed/stops are assumptions. Fee and mileage are required for Simple confirmation. Cancellation and unfinished-order shift guards remain available.
+
+Simple completed records deliberately leave restaurant arrival/collection blank, rather than fabricate data. History labels Simple records and handles absent collection times. Correction forms allow collection to remain unknown for Simple jobs. Backup v3 accepts active/completed Simple jobs without collectedAt and retains the workflow preference, preserving older Detailed records and backups. No route tracking or extra required input was added. Cache v28.
+
+A dedicated Simple suite covers the default/minimal form, invalid-input recovery, confirm/finish, reload, mid-job preference changes, shift guards, offline completion and GPS, active/completed backup restore, correction without restaurant timestamps, odometer reconciliation, old Detailed jobs and light/dark phone accessibility. Existing suites explicitly select Detailed in their fixtures so both workflows remain covered; the full suite is rerun. Phone-sized Simple offer and active-job screenshots are inspected. No real user records are edited.
+
+Validation passed: the full suite, including 169 functional assertions, both workflow modes and 37 mobile states x 2 themes x 3 sizes (222 combinations, 2832 measured targets), reported no issues. Confirming the next job also clears the previous location status card, so no separate dismissal is required.

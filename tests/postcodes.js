@@ -6,7 +6,7 @@ const {mockPhoton}=require('./photon-mock');
  let fail=false, empty=false, calls=0, postcodeCalls=0;
  await context.route('https://api.postcodes.io/**',route=>{postcodeCalls++;return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({result:{postcode:'M1 2AQ',latitude:53.48,longitude:-2.23}})});});
  await context.route('https://overpass-api.de/**',route=>{calls++;return route.fulfill({status:fail?503:200,contentType:'application/json',body:JSON.stringify({elements:empty?[]:[{type:'node',id:1,lat:53.48,lon:-2.23,tags:{name:"McDonald's",amenity:'fast_food','addr:postcode':'M1 2AQ','addr:street':'Example Street'}},{type:'way',id:2,center:{lat:53.4801,lon:-2.2301},tags:{name:'Other Kitchen',amenity:'restaurant','addr:postcode':'M1 2AB'}}]})});});
- await page.goto('http://localhost:8765/');await page.evaluate(()=>localStorage.clear());await page.goto('http://localhost:8765/#order');await page.reload();
+ await page.goto('http://localhost:8765/');await page.evaluate(()=>{localStorage.clear();localStorage['sp.workflowMode']=JSON.stringify('detailed');});await page.goto('http://localhost:8765/#order');await page.reload();
  assert.ok((await page.locator('.picker-input').getAttribute('placeholder')).includes('postcode'));
  await page.fill('[name=fee]','7');await page.fill('[name=miles]','3');
  await page.fill('.picker-input','m12aq');await page.locator('[data-remote]').first().waitFor();assert.equal(postcodeCalls,1);assert.equal(calls,1);

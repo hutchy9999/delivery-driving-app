@@ -20,7 +20,7 @@ assert.equal(calcShiftReview(shift,[{...jobs[0],acceptedAt:jobs[0].completedAt,c
  const ctx=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,serviceWorkers:'block'});
  const page=await ctx.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.goto('http://localhost:8765/');
- await page.evaluate(({shift,jobs})=>{localStorage.clear();localStorage['sp.shifts']=JSON.stringify([shift]);localStorage['sp.deliveries']=JSON.stringify(jobs);localStorage['sp.platform']=JSON.stringify('deliveroo');},{shift,jobs});
+ await page.evaluate(({shift,jobs})=>{localStorage.clear();localStorage['sp.workflowMode']=JSON.stringify('detailed');localStorage['sp.shifts']=JSON.stringify([shift]);localStorage['sp.deliveries']=JSON.stringify(jobs);localStorage['sp.platform']=JSON.stringify('deliveroo');},{shift,jobs});
  await page.goto('http://localhost:8765/#shift/s');await page.reload();
  assert.equal(await page.locator('main > h2').innerText(),'Shift review');
  assert.ok((await page.locator('.shift-review').first().innerText()).includes('Recorded deliveries\n2'));
