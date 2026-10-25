@@ -1253,7 +1253,7 @@ function renderOffer(view) {
       </div>
       <div id="order-result" class="offer-preview" aria-live="polite"></div>
       <div id="offer-place"></div>
-      <button class="btn primary huge" type="button" id="take">Taking it → Pickup</button>
+      <button class="btn primary huge" type="button" id="take">Picked up</button>
       <details class="offer-extra"${o.mins !== '' ? ' open' : ''}><summary>Offer time & calculation</summary>
         <label class="field"><span>Minutes <small>(optional, if the offer shows a time)</small></span>
           <input name="mins" type="number" inputmode="numeric" min="0" placeholder="Leave blank to estimate" value="${esc(o.mins)}"></label>
