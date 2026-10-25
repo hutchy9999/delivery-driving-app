@@ -969,7 +969,7 @@ const easeTag = (p) => (p.ease ? `<span class="tag ${p.ease}">${EASE[p.ease]}</s
 function placeMeta(p) {
   const visits = (p.waits || []).length;
   const avg = avgWait(p);
-  return visits ? `${visits} visit${visits > 1 ? 's' : ''} · avg wait ${Math.round(avg)} min` : 'No waits timed yet';
+  return (visits ? `${visits} visit${visits > 1 ? 's' : ''} · avg wait ${Math.round(avg)} min` : 'No waits timed yet') + (p.postcodeOnly ? ' · postcode only, branch unconfirmed' : '');
 }
 
 function parkingLine(p) {
@@ -1056,13 +1056,47 @@ async function findArea(q) {
 
 const addressLine = (x) => [x.street, x.area, x.postcode].filter(Boolean).join(', ');
 
+function fullPostcode(value) {
+  const compact = value.toUpperCase().replace(/\s/g, '');
+  return /^(GIR0AA|[A-Z]{1,2}\d[A-Z\d]?\d[A-Z]{2})$/.test(compact) ? compact.slice(0, -3) + ' ' + compact.slice(-3) : null;
+}
+const postcodeVenues = new Map();
+async function searchPostcode(postcode, signal) {
+  if (postcodeVenues.has(postcode)) return postcodeVenues.get(postcode);
+  const response = await fetch('https://api.postcodes.io/postcodes/' + encodeURIComponent(postcode), {signal});
+  if (response.status === 404) throw new Error('postcode-not-found');
+  if (!response.ok) throw new Error('postcode-lookup-failed');
+  const point = (await response.json()).result;
+  if (!point || !Number.isFinite(point.latitude) || !Number.isFinite(point.longitude)) throw new Error('postcode-lookup-failed');
+  const query = `[out:json][timeout:6];nwr(around:300,${point.latitude},${point.longitude})[amenity~"^(restaurant|fast_food|cafe|food_court)$"];out center tags;`;
+  const result = await fetch('https://overpass-api.de/api/interpreter', {method:'POST',body:new URLSearchParams({data:query}),signal});
+  if (!result.ok) throw new Error('postcode-lookup-failed');
+  const venues = ((await result.json()).elements || []).map(element => {
+    const tags = element.tags || {}, lat = element.lat ?? element.center?.lat, lon = element.lon ?? element.center?.lon;
+    return {osm:(element.type === 'node' ? 'N' : element.type === 'way' ? 'W' : 'R') + element.id,
+      name:tags.name || tags.brand || '', street:[tags['addr:housenumber'],tags['addr:street']].filter(Boolean).join(' '),
+      area:tags['addr:suburb'] || tags['addr:city'] || '', postcode:tags['addr:postcode'] || '',
+      kind:(tags.amenity || '').replace(/_/g, ' '), lat,lon,lookupPostcode:postcode,
+      exactPostcode:fullPostcode(tags['addr:postcode'] || '') === postcode};
+  }).filter(venue => venue.name && Number.isFinite(venue.lat) && Number.isFinite(venue.lon))
+    .sort((a,b) => Number(b.exactPostcode)-Number(a.exactPostcode) || kmBetween({lat:point.latitude,lon:point.longitude},a)-kmBetween({lat:point.latitude,lon:point.longitude},b));
+  const unique = venues.filter((venue,index) => !venues.slice(0,index).some(other => other.name === venue.name && kmBetween(other,venue)<0.03)).slice(0,8);
+  postcodeVenues.set(postcode, unique);
+  return unique;
+}
+
 // Saves a search result as a place, or returns the place already saved for it.
 function placeFromResult(r) {
   const existing = store.places.find((p) => p.osm === r.osm);
-  if (existing) return existing;
+  if (existing) {
+    updatePlace(existing.id, {postcode:existing.postcode || r.postcode || '',lookupPostcode:r.lookupPostcode || existing.lookupPostcode || ''});
+    return getPlace(existing.id);
+  }
   const place = {
     ...addPlace(r.name),
     osm: r.osm,
+    postcode: r.postcode || '',
+    lookupPostcode: r.lookupPostcode || '',
     area: r.area || r.street,
     address: addressLine(r),
     loc: { lat: r.lat, lng: r.lon },
@@ -1076,17 +1110,18 @@ function placeFromResult(r) {
 function placePicker(container, label, onPick) {
   container.innerHTML = `
     <label class="field"><span>${label}</span>
-      <input type="text" class="picker-input" autocomplete="off" placeholder="Type the restaurant name"></label>
+      <input type="text" class="picker-input" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Enter pickup postcode, e.g. M1 2AQ"></label>
     <div class="sugg"></div>`;
   const input = $('.picker-input', container);
   const list = $('.sugg', container);
-  let remote = [], status = '', ctrl = null, wait = null;
+  let remote = [], status = '', ctrl = null, wait = null, sequence = 0;
 
   const show = () => {
     const q = input.value.trim().toLowerCase();
+    const postcode = fullPostcode(q);
     if (!q) { list.innerHTML = ''; return; }
     const saved = store.places
-      .filter((p) => `${p.name} ${p.area} ${p.address || ''}`.toLowerCase().includes(q))
+      .filter((p) => `${p.name} ${p.area} ${p.address || ''} ${p.postcode || ''} ${p.lookupPostcode || ''}`.toLowerCase().replace(/\s/g,'').includes(q.replace(/\s/g,'')))
       .sort((a, b) => (b.waits || []).length - (a.waits || []).length)
       .slice(0, 4);
     const savedOsm = new Set(saved.map((p) => p.osm).filter(Boolean));
@@ -1096,39 +1131,53 @@ function placePicker(container, label, onPick) {
         <button type="button" data-id="${esc(p.id)}">
           <span><b>${placeName(p)}</b>${p.address ? `<small>${esc(p.address)}</small>` : ''}<small>${placeMeta(p)}</small></span>${easeTag(p)}
         </button>`).join('') : '') +
-      (found.length ? `<div class="sugg-head">Near ${esc(store.area.name.split(',')[0])}</div>` + found.map((r, i) => `
+      (found.length ? `<div class="sugg-head">${postcode ? 'Around ' + esc(postcode) + ' · choose your restaurant' : 'Near ' + esc(store.area.name.split(',')[0])}</div>` + found.map((r, i) => `
         <button type="button" data-remote="${remote.indexOf(r)}">
-          <span><b>${esc(r.name)}</b><small>${esc(addressLine(r)) || 'No address listed'}</small>${r.kind ? `<small class="kind">${esc(r.kind)}</small>` : ''}</span>
+          <span><b>${esc(r.name)}</b><small>${esc(addressLine(r)) || 'No address listed'}</small>${postcode ? `<small>${r.exactPostcode ? 'Postcode matches' : 'Nearby · check branch/address'}</small>` : ''}${r.kind ? `<small class="kind">${esc(r.kind)}</small>` : ''}</span>
         </button>`).join('') : '') +
       (status ? `<div class="sugg-status">${status}</div>` : '') +
-      (q.length >= 2 ? `<button type="button" data-new="1"><span class="accent-text">+ Not listed? Add "${esc(input.value.trim())}"</span></button>` : '') +
+      (postcode ? `<button type="button" data-new="1"><span class="accent-text">Use ${esc(postcode)} only<small>Restaurant not confirmed · you can name it later in Places</small></span></button>` : q.length >= 2 && !/^[a-z]{1,2}\d/i.test(q) ? `<button type="button" data-new="1"><span class="accent-text">+ Not listed? Add "${esc(input.value.trim())}"</span></button>` : '') +
       (found.length ? `<div class="sugg-status small">Search results © OpenStreetMap contributors</div>` : '');
   };
 
   input.addEventListener('input', () => {
     clearTimeout(wait);
     if (ctrl) ctrl.abort();
+    const request = ++sequence;
     remote = [];
     const q = input.value.trim();
-    status = q.length >= 3 ? 'Searching…' : '';
+    const postcode = fullPostcode(q), partialPostcode = !postcode && /^[a-z]{1,2}\d/i.test(q);
+    status = partialPostcode ? 'Enter the full pickup postcode, e.g. M1 2AQ.' : q.length >= 3 ? 'Searching…' : '';
     show();
-    if (q.length < 3) return;
+    if (q.length < 3 || partialPostcode) return;
     wait = setTimeout(async () => {
+      if (!container.isConnected || request !== sequence) return;
       ctrl = new AbortController();
+      const controller = ctrl;
+      const timeout = setTimeout(() => controller.abort(), 8000);
       try {
-        remote = await searchVenues(q, ctrl.signal);
-        status = remote.length ? '' : `No matches near ${esc(store.area.name.split(',')[0])}. Try fewer letters.`;
+        const results = postcode ? await searchPostcode(postcode, controller.signal) : await searchVenues(q, controller.signal);
+        if (request !== sequence || !container.isConnected) return;
+        remote = results;
+        status = remote.length ? (postcode ? 'A postcode can cover several businesses. Check the branch before choosing.' : '') : postcode ? 'No restaurants listed here. Use the postcode only, or search by name.' : `No matches near ${esc(store.area.name.split(',')[0])}. Try fewer letters.`;
       } catch (e) {
-        if (e.name === 'AbortError') return;
-        status = navigator.onLine === false ? 'No signal: showing your saved places only' : "Search isn't working right now";
-      }
+        if (request !== sequence || !container.isConnected) return;
+        status = e.message === 'postcode-not-found' ? 'Postcode not found. Check it, or use the postcode only.' : navigator.onLine === false ? 'No signal: showing your saved places only' : postcode ? "Lookup unavailable. You can still use the postcode only or a saved place." : "Search isn't working right now";
+      } finally { clearTimeout(timeout); }
       show();
     }, 350);
   });
   list.addEventListener('click', (e) => {
     const b = e.target.closest('button');
     if (!b) return;
-    if (b.dataset.new) onPick(addPlace(input.value));
+    if (b.dataset.new) {
+      const postcode = fullPostcode(input.value);
+      if (!postcode) return onPick(addPlace(input.value));
+      const existing = store.places.find(p => p.postcodeOnly && p.postcode === postcode);
+      if (existing) return onPick(existing);
+      const place = {...addPlace('Pickup at ' + postcode),postcode,address:postcode,postcodeOnly:true};
+      updatePlace(place.id,place); onPick(place);
+    }
     else if (b.dataset.remote !== undefined) onPick(placeFromResult(remote[+b.dataset.remote]));
     else onPick(getPlace(b.dataset.id));
   });
@@ -1248,7 +1297,7 @@ function renderOffer(view) {
     const slot = $('#offer-place');
     const place = getPlace(store.order.placeId);
     if (!place) {
-      placePicker(slot, 'Restaurant <small>(optional)</small>', (p) => { setOrder({ placeId: p.id }); showPlace(); update(); });
+      placePicker(slot, 'Pickup postcode <small>(optional)</small>', (p) => { setOrder({ placeId: p.id }); showPlace(); update(); });
       return;
     }
     slot.innerHTML = `
@@ -1299,7 +1348,7 @@ function renderPickup(view) {
   const slot = $('#pickup-place');
   if (!place) {
     slot.className = 'card';
-    placePicker(slot, 'Which restaurant?', (p) => { setOrder({ placeId: p.id }); render(); });
+    placePicker(slot, 'Pickup postcode <small>(or restaurant name)</small>', (p) => { setOrder({ placeId: p.id }); render(); });
   } else {
     const wait = avgWait(place);
     slot.innerHTML = `
@@ -1350,7 +1399,7 @@ function renderWaiting(view) {
     slot.innerHTML = `<p class="muted small">Optional. Saved straight away for next time.</p>${parkingEditor(place)}`;
     bindParkingEditor(slot, place.id);
   } else {
-    placePicker(slot, 'Which restaurant? <small>(to save this wait)</small>', (p) => { setOrder({ placeId: p.id }); render(); });
+    placePicker(slot, 'Pickup postcode <small>(to save this wait · name also works)</small>', (p) => { setOrder({ placeId: p.id }); render(); });
   }
 
   $('#got').onclick = () => {
@@ -1630,7 +1679,7 @@ function renderPlace(view, id) {
     input.addEventListener('change', () => {
       const v = input.value.trim();
       if (k === 'name' && !v) { input.value = p.name; return toast('A place needs a name'); }
-      updatePlace(id, { [k]: v });
+      updatePlace(id, { [k]: v, ...(k === 'name' && p.postcodeOnly && v !== p.name ? {postcodeOnly:false} : {}) });
       toast('Saved');
     });
   });
@@ -1749,7 +1798,7 @@ function renderSettings(view) {
       <label class="field"><span>Work area <small>(town, city or postcode area)</small></span>
         <input id="area" type="text" autocomplete="off" value="${esc(store.area.name)}" placeholder="e.g. Manchester"></label>
       <p class="muted small" id="area-status">Searches show restaurants within about 12 miles of ${esc(store.area.name)}.</p>
-      <p class="muted small">Searching sends what you type and your work area to Photon (OpenStreetMap search). Your location, shifts and notes never leave this phone.</p>
+      <p class="muted small">Name searches send your query and work area to Photon. Pickup postcode searches send the postcode to Postcodes.io, then its centre to Overpass to find nearby restaurants (OpenStreetMap). Saved places work offline. Your captured delivery location, shifts and notes are not sent.</p>
     </div>
 
     <div class="card">
