@@ -12,7 +12,7 @@ const axe = fs.readFileSync(require.resolve('axe-core/axe.min.js'),'utf8');
  const shift={id:'s',start:'2026-10-24T10:00:00Z',end:'2026-10-24T12:00:00Z',miles:15,earnings:30,settings};
  const delivery={id:'d',shiftId:'s',placeId:'p',restaurantName:'Example Kitchen',platformId:'just-eat',fee:'7',miles:'3',acceptedAt:'2026-10-24T10:10:35.123Z',arrivedAt:'2026-10-24T10:15:35.123Z',collectedAt:'2026-10-24T10:25:35.123Z',completedAt:'2026-10-24T10:40:35.123Z'};
  const place={id:'p',name:'Example Kitchen',waits:[{orderId:'d',at:delivery.collectedAt,mins:10,platformId:'just-eat'},{at:'2026-10-23T10:00:00Z',mins:8}]};
- await page.evaluate(({settings,shift,delivery,place})=>{localStorage.clear();for(const [k,v]of Object.entries({'sp.settings':settings,'sp.shifts':[shift],'sp.deliveries':[delivery],'sp.places':[place]}))localStorage[k]=JSON.stringify(v);},{settings,shift,delivery,place});
+ await page.evaluate(({settings,shift,delivery,place})=>{localStorage.clear();localStorage['sp.workflowMode']=JSON.stringify('detailed');for(const [k,v]of Object.entries({'sp.settings':settings,'sp.shifts':[shift],'sp.deliveries':[delivery],'sp.places':[place]}))localStorage[k]=JSON.stringify(v);},{settings,shift,delivery,place});
  const read=key=>page.evaluate(k=>JSON.parse(localStorage[k]),key);
  const edit=async()=>{await page.goto('http://localhost:8765/#delivery-edit/d');await page.reload();await page.locator('#delivery-edit-form').waitFor();};
  const submit=()=>page.click('#delivery-edit-form button[type=submit]');

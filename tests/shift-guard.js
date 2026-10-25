@@ -7,7 +7,7 @@ const now=new Date('2026-10-23T20:10:35Z');await page.clock.setFixedTime(now);
 await page.goto('http://localhost:8765/');
 const active={id:'guard',start:'2026-10-23T18:00:00Z',startOdo:'100',draft:{earnings:'25',miles:'10'}};
 const order={id:'pending',step:'deliver',acceptedAt:'2026-10-23T19:00:00Z',collectedAt:'2026-10-23T20:00:00Z',shiftId:'guard',platformId:'just-eat',platformName:'Just Eat',fee:'7',miles:'3'};
-const seed=async(o)=>{await page.evaluate(({active,o})=>{localStorage.clear();localStorage['sp.settings']=JSON.stringify({fuelPrice:1.4,mpg:45,maintPence:5,insurancePerHour:1.16});localStorage['sp.active']=JSON.stringify(active);localStorage['sp.order']=JSON.stringify(o);localStorage['sp.platform']=JSON.stringify('just-eat')},{active,o});await page.goto('http://localhost:8765/#home');await page.reload();};
+const seed=async(o)=>{await page.evaluate(({active,o})=>{localStorage.clear();localStorage['sp.workflowMode']=JSON.stringify('detailed');localStorage['sp.settings']=JSON.stringify({fuelPrice:1.4,mpg:45,maintPence:5,insurancePerHour:1.16});localStorage['sp.active']=JSON.stringify(active);localStorage['sp.order']=JSON.stringify(o);localStorage['sp.platform']=JSON.stringify('just-eat')},{active,o});await page.goto('http://localhost:8765/#home');await page.reload();};
 const read=key=>page.evaluate(k=>JSON.parse(localStorage.getItem(k)||'null'),key);
 for(const stage of ['pickup','waiting','deliver','offer']){
  await seed({...order,step:stage});await page.click('#end');await page.locator('#unfinished-order').waitFor();

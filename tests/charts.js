@@ -37,7 +37,7 @@ assert.equal(profitTimeline([], [], {start:'invalid'}, S, now).length, 0);
   await page.clock.setFixedTime(new Date(now));
   await page.goto('http://localhost:8765/');
   const seed = async (values) => {
-   await page.evaluate(values => { localStorage.clear(); for (const [k,v] of Object.entries(values)) localStorage.setItem(k, JSON.stringify(v)); }, values);
+   await page.evaluate(values => { localStorage.clear();localStorage['sp.workflowMode']=JSON.stringify('detailed'); for (const [k,v] of Object.entries(values)) localStorage.setItem(k, JSON.stringify(v)); }, values);
    await page.reload();
   };
   await seed({ 'sp.settings': S, 'sp.active': active, 'sp.deliveries': jobs });
