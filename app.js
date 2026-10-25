@@ -891,7 +891,7 @@ function renderShift(view, id) {
       ${line('Recorded restaurant waiting', review.waitCount ? duration(review.waitHours) : 'Not recorded')}
       ${line('Outside timed deliveries', review.outsideHours !== null ? duration(review.outsideHours) : 'Not recorded')}
       <details class="net-details"><summary>What these timings mean</summary>
-      <p class="muted small">All platforms. ${review.timedCount}/${review.count} deliveries have acceptance-to-completion timings; ${review.waitCount}/${review.count} have wait timings. Overlapping times count once.</p>
+      <p class="muted small">All platforms. ${review.timedCount}/${review.count} deliveries have acceptance-to-completion timings; ${review.waitCount}/${review.count} have recorded waits. Overlapping timed intervals count once.${review.manualWaitCount ? ' ' + review.manualWaitCount + ' manually entered wait(s) added as durations; their exact timing and overlap are unknown.' : ''}</p>
       <p class="muted small">Outside timed deliveries includes time before, between and after recorded jobs: repositioning, waiting for offers, breaks and missing entries. ${review.timedCount < review.count ? 'Missing timings can make this amount too high.' : 'It is not a measure of idle time.'}</p>
       </details>
       ${review.timedCount < review.count || review.waitCount < review.count ? '<p class="muted small">Some timings are missing; recorded totals are incomplete.</p>' : ''}
@@ -1482,7 +1482,7 @@ function deliveryHistory(deliveries = store.deliveries) {
     <p class="muted small">Offer fees are recorded here. Enter final earnings, including tips, when you end your shift.</p>` +
     [...deliveries].sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt)).map((d) => `
       <details class="card delivery-record">
-        <summary><b>${esc(d.restaurantName || 'Delivery')}</b> ${platformBadge(d)}<small>${dateLabel(d.completedAt)} · ${timeLabel(d.completedAt)} · ${d.fee !== '' ? money(+d.fee) : 'Fee not entered'}${d.correctedAt ? ' · Corrected' : ''}</small></summary>
+        <summary><b>${esc(getPlace(d.placeId)?.name || d.restaurantName || 'Delivery')}</b> ${platformBadge(d)}<small>${dateLabel(d.completedAt)} · ${timeLabel(d.completedAt)} · ${d.fee !== '' ? money(+d.fee) : 'Fee not entered'}${d.correctedAt ? ' · Corrected' : ''}</small></summary>
         <label class="field"><span>Delivery platform <small>(changes save automatically)</small></span>
           <select data-delivery-platform="${esc(d.id)}">
             <option value=""${!d.platformId ? ' selected' : ''}>Platform not recorded</option>
@@ -1494,7 +1494,7 @@ function deliveryHistory(deliveries = store.deliveries) {
         ${line('At restaurant', d.arrivedAt ? timeLabel(d.arrivedAt) : 'Not recorded')}
         ${line('Food collected', timeLabel(d.collectedAt))}
         ${line('Delivered', timeLabel(d.completedAt))}
-        ${line('Restaurant wait', interval(d.arrivedAt, d.collectedAt))}
+        ${line('Restaurant wait', deliveryWaitMinutes(d) !== null ? num(Math.round(deliveryWaitMinutes(d)*10)/10) + ' min' + (manualWaitMinutes(d) !== null ? ' · manual' : '') : 'Not recorded')}
         ${line('Collection to completion', interval(d.collectedAt, d.completedAt))}
         ${line('Acceptance to completion', interval(d.acceptedAt, d.completedAt))}
         ${d.miles !== '' ? line('Miles from offer', num(+d.miles)) : ''}
@@ -1508,12 +1508,12 @@ function deliveryHistory(deliveries = store.deliveries) {
 
 // Corrections retain the initial values; timestamps keep their exact precision
 // unless the corresponding input was changed explicitly.
-const DELIVERY_FIELDS = ['fee', 'miles', 'acceptedAt', 'arrivedAt', 'collectedAt', 'completedAt'];
+const DELIVERY_FIELDS = ['fee', 'miles', 'acceptedAt', 'arrivedAt', 'collectedAt', 'completedAt', 'manualWaitMins'];
 const DELIVERY_TIMES = { acceptedAt: 'Accepted', arrivedAt: 'At restaurant', collectedAt: 'Food collected', completedAt: 'Delivered' };
 function renderDeliveryEdit(view, id) {
   const delivery = store.deliveries.find(d => d.id === id);
   if (!delivery) return go('#history');
-  const back = delivery.shiftId && store.shifts.some(s => s.id === delivery.shiftId) ? '#shift/' + delivery.shiftId : '#history';
+  const back = location.hash.split('/')[2] === 'place' && getPlace(delivery.placeId) ? '#place/' + delivery.placeId : delivery.shiftId && store.shifts.some(s => s.id === delivery.shiftId) ? '#shift/' + delivery.shiftId : '#history';
   const localTime = value => {
     if (!value || !Number.isFinite(+new Date(value))) return '';
     const date = new Date(value);
@@ -1521,16 +1521,19 @@ function renderDeliveryEdit(view, id) {
   };
   const initial = Object.fromEntries(Object.keys(DELIVERY_TIMES).map(key => [key, localTime(delivery[key])]));
   const original = delivery.originalValues;
+  const initialWait = deliveryWaitMinutes(delivery) !== null ? String(Math.round(deliveryWaitMinutes(delivery)*10)/10) : '';
   const originalLine = (label, value) => `<div class="line"><span>${label}</span><b>${esc(value)}</b></div>`;
   view.innerHTML = `
     <h2>Edit delivery</h2>
-    <p>${esc(delivery.restaurantName || 'Delivery')} ${platformBadge(delivery)}</p>
+    <p>${esc(getPlace(delivery.placeId)?.name || delivery.restaurantName || 'Delivery')} ${platformBadge(delivery)}</p>
     <p class="muted small">Correct a missed tap or entry while parked. Changes save only when you press Save corrections.</p>
     <form id="delivery-edit-form" class="card" novalidate>
       <div class="pair">
         <label class="field"><span>Offer fee (£)</span><input name="fee" type="number" inputmode="decimal" min="0" step="0.01" value="${esc(delivery.fee ?? '')}"></label>
         <label class="field"><span>Offer miles</span><input name="miles" type="number" inputmode="decimal" min="0" step="0.1" value="${esc(delivery.miles ?? '')}"></label>
       </div>
+      <label class="field"><span>Restaurant wait (minutes)</span><input name="waitMins" type="number" inputmode="decimal" min="0" max="1440" step="0.1" value="${initialWait}" placeholder="e.g. 7"></label>
+      <p class="muted small">Enter the actual wait if a button was pressed late or just to move on. This overrides the wait duration without changing timestamps. Clear to use the timestamps again.</p>
       ${Object.entries(DELIVERY_TIMES).map(([key, label]) => `<label class="field"><span>${label}${key === 'acceptedAt' || key === 'arrivedAt' ? ' <small>(optional if not recorded)</small>' : ''}</span><input name="${key}" type="datetime-local" step="1" value="${initial[key]}"></label>`).join('')}
       <p class="muted small">Times are local to this device. Leave unknown optional timings blank. Food collected and Delivered are required.</p>
       <p class="muted small">Offer corrections update live estimates and delivery analysis. Saved shift profit still uses the shift's final earnings and actual mileage; edit the shift separately if those totals are wrong.</p>
@@ -1541,9 +1544,13 @@ function renderDeliveryEdit(view, id) {
     ${original ? `<details class="card delivery-record"><summary>Original recorded values</summary>
       ${originalLine('Offer fee', original.fee !== '' && original.fee != null ? money(+original.fee) : 'Not recorded')}
       ${originalLine('Offer miles', original.miles !== '' && original.miles != null ? num(+original.miles) + ' mi' : 'Not recorded')}
+      ${originalLine('Restaurant wait', deliveryWaitMinutes(original) !== null ? num(Math.round(deliveryWaitMinutes(original)*10)/10) + ' min' : 'Not recorded')}
       ${Object.entries(DELIVERY_TIMES).map(([key, label]) => originalLine(label, original[key] ? localTime(original[key]).replace('T', ' ') : 'Not recorded')).join('')}
       <p class="muted small">Before the first correction. Latest correction: ${esc(dateLabel(delivery.correctedAt))} · ${esc(timeLabel(delivery.correctedAt))}.</p></details>` : ''}`;
   const form = $('#delivery-edit-form');
+  // Browsers may omit zero seconds from datetime-local values. Compare against
+  // the rendered input so untouched originals keep their exact representation.
+  for (const key of Object.keys(DELIVERY_TIMES)) initial[key] = form.elements[key].value;
   form.onsubmit = event => {
     event.preventDefault();
     const fail = message => { const error = $('#correction-error'); error.textContent = message; error.hidden = false; error.focus(); };
@@ -1551,6 +1558,10 @@ function renderDeliveryEdit(view, id) {
     const current = deliveries.find(d => d.id === id);
     if (!current || JSON.stringify(current) !== JSON.stringify(delivery)) return fail('This record changed elsewhere. Reopen Edit delivery before saving.');
     const values = {};
+    const waitInput = form.elements.waitMins;
+    const waitChanged = waitInput.value !== initialWait;
+    if (waitInput.validity.badInput || (waitInput.value !== '' && (!Number.isFinite(+waitInput.value) || +waitInput.value < 0 || +waitInput.value > 1440))) return fail('Enter a wait from 0 to 1440 minutes, or clear it to use timestamps.');
+    if (waitChanged) values.manualWaitMins = waitInput.value === '' ? null : +waitInput.value;
     for (const key of ['fee', 'miles']) {
       const input = form.elements[key], value = input.value.trim();
       if (input.validity.badInput || (value !== '' && (!Number.isFinite(+value) || +value < 0))) return fail('Fee and mileage must be zero or more, or left blank.');
@@ -1571,9 +1582,9 @@ function renderDeliveryEdit(view, id) {
       if (parent && (at < +new Date(parent.start) || (parent.end && at > +new Date(parent.end)))) return fail('Delivery times must stay within the linked shift. Edit the shift first if its boundaries are wrong.');
       previous = at;
     }
-    const changed = DELIVERY_FIELDS.some(key => ['fee','miles'].includes(key)
+    const changed = DELIVERY_FIELDS.filter(key => key !== 'manualWaitMins').some(key => ['fee','miles'].includes(key)
       ? String(delivery[key] ?? '') !== String(values[key]) : (delivery[key] || null) !== values[key]);
-    if (!changed) { toast('No changes to save'); return go(back); }
+    if (!changed && !(waitChanged && (delivery.manualWaitMins ?? null) !== (values.manualWaitMins ?? null))) { toast('No changes to save'); return go(back); }
     const corrected = { ...delivery, ...values, correctedAt: new Date().toISOString(),
       originalValues: original || Object.fromEntries(DELIVERY_FIELDS.map(key => [key, delivery[key] ?? null])) };
     const places = store.places;
@@ -1581,8 +1592,8 @@ function renderDeliveryEdit(view, id) {
       const hasWait = (place.waits || []).some(w => w.orderId === id);
       if (place.id !== delivery.placeId && !hasWait) return place;
       const waits = (place.waits || []).filter(w => w.orderId !== id);
-      const mins = values.arrivedAt ? (+new Date(values.collectedAt) - +new Date(values.arrivedAt)) / 60000 : null;
-      if (mins !== null && mins >= 0 && mins <= MAX_WAIT_MINS) waits.push({at:values.collectedAt,mins:Math.round(mins*10)/10,orderId:id,platformId:delivery.platformId || null});
+      const mins = deliveryWaitMinutes(corrected);
+      if (mins !== null && mins >= 0 && (manualWaitMinutes(corrected) !== null || mins <= MAX_WAIT_MINS)) waits.push({at:values.collectedAt,mins:Math.round(mins*10)/10,orderId:id,platformId:delivery.platformId || null});
       waits.sort((a, b) => new Date(a.at) - new Date(b.at));
       return { ...place, waits };
     });
@@ -1626,7 +1637,7 @@ function renderPlaces(view) {
     $('#place-list').innerHTML = places.length
       ? places.map((p) => `
           <a class="place-row" href="#place/${esc(p.id)}">
-            <span><b>${placeName(p)}</b><small>${placeMeta(p)}${p.spot ? ' · 🅿️ spot saved' : ''}</small></span>${easeTag(p)}
+            <span><b>${placeName(p)}</b><small>${placeMeta(p)}${p.spot ? ' · 🅿️ spot saved' : ''}</small><small>Edit name, parking & waits →</small></span>${easeTag(p)}
           </a>`).join('') + add
       : (q ? add : `<div class="card"><p class="muted">${store.platform === 'all' ? "No places yet. They're added when you pick a restaurant on an order, or search above to add one." : 'No collections recorded for this provider yet. Choose All in Settings to see every saved place.'}</p></div>`);
     const b = $('#add-place');
@@ -1646,13 +1657,25 @@ function renderPlace(view, id) {
   if (!p) return go('#places');
   const waits = (p.waits || []).slice(-5).reverse();
   const wait = avgWait(p);
+  const visits = store.deliveries.filter(d => d.placeId === id).sort((a,b) => new Date(b.completedAt)-new Date(a.completedAt));
   view.innerHTML = `
+    <h2>Edit place</h2>
     <p class="muted small">Shared restaurant · parking, notes and wait averages apply across platforms</p>
     <div class="card">
       <label class="field"><span>Restaurant name</span><input name="name" type="text" value="${esc(p.name)}" maxlength="80"></label>
+      <p class="muted small">Name and area save automatically when you finish editing a field.</p>
       <label class="field"><span>Area or street <small>(helps tell branches apart)</small></span><input name="area" type="text" value="${esc(p.area)}" maxlength="80" placeholder="e.g. High Street"></label>
       ${p.address ? `<p class="muted small">📍 ${esc(p.address)}</p>` : ''}
       ${p.loc ? `<a class="btn icon" href="${directionsUrl(p.loc)}" target="_blank" rel="noopener">${PIN_ICON} Directions to restaurant</a>` : ''}
+    </div>
+    <div class="card">
+      <h2>Wait times</h2>
+      ${wait !== null
+        ? `<div class="facts"><div><b>${Math.round(wait)} min</b><small>avg wait (last 10)</small></div><div><b>${p.waits.length}</b><small>visits</small></div></div>
+           ${waits.filter(w => !visits.some(d => d.id === w.orderId)).map((w) => `<div class="line"><span>${dateLabel(w.at)} ${timeLabel(w.at)}</span><b>${num(w.mins)} min</b></div>`).join('')}`
+        : '<p class="muted small">Timed automatically when you use "I\'ve arrived" and "Got the food" on an order.</p>'}
+      ${visits.length ? '<p class="muted small">Correct each completed delivery below. Changes update this place’s average.</p>' : ''}
+      ${visits.map(d => `<div class="place-visit"><div><b>${esc(dateLabel(d.completedAt))} · ${esc(timeLabel(d.completedAt))}</b><small>${deliveryWaitMinutes(d) !== null ? num(Math.round(deliveryWaitMinutes(d)*10)/10) + ' min' : 'Wait not recorded'}${manualWaitMinutes(d) !== null ? ' · manual' : ''}</small></div><a class="btn" href="#delivery-edit/${esc(d.id)}/place">Edit wait</a></div>`).join('')}
     </div>
     <div class="card">
       <h2>Parking spot</h2>
@@ -1665,13 +1688,6 @@ function renderPlace(view, id) {
            <button class="btn icon" id="spot">${PIN_ICON} Save parking spot here</button>`}
     </div>
     <div class="card" id="park-edit">${parkingEditor(p)}</div>
-    <div class="card">
-      <h2>Wait times</h2>
-      ${wait !== null
-        ? `<div class="facts"><div><b>${Math.round(wait)} min</b><small>avg wait (last 10)</small></div><div><b>${p.waits.length}</b><small>visits</small></div></div>
-           ${waits.map((w) => `<div class="line"><span>${dateLabel(w.at)} ${timeLabel(w.at)}</span><b>${Math.max(1, Math.round(w.mins))} min</b></div>`).join('')}`
-        : '<p class="muted small">Timed automatically when you use "I\'ve arrived" and "Got the food" on an order.</p>'}
-    </div>
     <button class="btn danger-outline" id="delete-place">Delete this place</button>`;
 
   ['name', 'area'].forEach((k) => {

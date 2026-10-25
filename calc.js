@@ -117,6 +117,17 @@ function profitTimeline(shifts, deliveries, active, settings, now = Date.now()) 
 
 // Review only explicitly linked deliveries. Merge clipped intervals so overlapping
 // jobs never double-count time; missing timestamps are not invented.
+function manualWaitMinutes(delivery) {
+  const value = delivery.manualWaitMins;
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+}
+function deliveryWaitMinutes(delivery) {
+  const manual = manualWaitMinutes(delivery);
+  if (manual !== null) return manual;
+  if (!delivery.arrivedAt || !delivery.collectedAt) return null;
+  const mins = (new Date(delivery.collectedAt) - new Date(delivery.arrivedAt)) / 60000;
+  return Number.isFinite(mins) && mins >= 0 ? mins : null;
+}
 function calcShiftReview(shift, deliveries) {
   const start = +new Date(shift.start), end = +new Date(shift.end);
   const jobs = shift.id ? deliveries.filter(d => d.shiftId === shift.id &&
@@ -137,17 +148,19 @@ function calcShiftReview(shift, deliveries) {
     return total / 3600000;
   };
   const timed = jobs.map(d => interval(d.acceptedAt, d.completedAt)).filter(Boolean);
-  const waits = jobs.map(d => interval(d.arrivedAt, d.collectedAt)).filter(Boolean);
+  const manualWaits = jobs.filter(d => manualWaitMinutes(d) !== null);
+  const waits = jobs.filter(d => manualWaitMinutes(d) === null).map(d => interval(d.arrivedAt, d.collectedAt)).filter(Boolean);
   const mileage = jobs.filter(d => d.miles !== '' && d.miles != null && Number.isFinite(+d.miles) && +d.miles >= 0);
   const hours = Math.max(0, (end - start) / 3600000);
   const offerMiles = mileage.reduce((sum, d) => sum + +d.miles, 0);
   return { count: jobs.length, perHour: hours > 0 ? jobs.length / hours : 0,
-    timedCount: timed.length, waitCount: waits.length, waitHours: mergedHours(waits),
+    timedCount: timed.length, waitCount: waits.length + manualWaits.length, manualWaitCount:manualWaits.length,
+    waitHours: mergedHours(waits) + manualWaits.reduce((sum,d) => sum + manualWaitMinutes(d)/60,0),
     outsideHours: timed.length ? Math.max(0, hours - mergedHours(timed)) : null,
     mileageCount: mileage.length, offerMiles,
     mileageDifference: jobs.length && mileage.length === jobs.length ? +shift.miles - offerMiles : null };
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { LITRES_PER_UK_GALLON, insurancePerHour, fuelCostPerMile, calcShift, calcOrder, sumResults, profitTimeline, calcShiftReview };
+  module.exports = { LITRES_PER_UK_GALLON, insurancePerHour, fuelCostPerMile, calcShift, calcOrder, sumResults, profitTimeline, calcShiftReview, manualWaitMinutes, deliveryWaitMinutes };
 }
