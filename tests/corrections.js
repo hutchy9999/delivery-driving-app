@@ -22,7 +22,7 @@ const axe = fs.readFileSync(require.resolve('axe-core/axe.min.js'),'utf8');
  await edit();await page.fill('[name=fee]','-1');await submit();assert.ok((await page.textContent('#correction-error')).includes('zero or more'));
  await page.fill('[name=fee]','9');await page.fill('[name=miles]','4');
  await page.fill('[name=collectedAt]','2026-10-24T11:30:35');await submit();await page.locator('#review-time').waitFor();
- let d=(await read('sp.deliveries'))[0];assert.equal(d.fee,9);assert.equal(d.miles,4);assert.equal(d.acceptedAt,delivery.acceptedAt,'untouched milliseconds retained');assert.deepEqual(d.originalValues,Object.fromEntries(['fee','miles','acceptedAt','arrivedAt','collectedAt','completedAt'].map(k=>[k,delivery[k]])));
+ let d=(await read('sp.deliveries'))[0];assert.equal(d.fee,9);assert.equal(d.miles,4);assert.equal(d.acceptedAt,delivery.acceptedAt,'untouched milliseconds retained');assert.deepEqual(d.originalValues,Object.fromEntries(['fee','miles','acceptedAt','arrivedAt','collectedAt','completedAt','manualWaitMins'].map(k=>[k,delivery[k]??null])));
  assert.ok(d.correctedAt);assert.equal((await read('sp.places'))[0].waits.length,2);assert.equal((await read('sp.places'))[0].waits.find(w=>w.orderId==='d').mins,15);
  assert.deepEqual((await read('sp.shifts'))[0],shift,'final shift profit inputs unchanged');
  await edit();await page.fill('[name=completedAt]','2026-10-24T11:20:01');await submit();assert.ok((await page.textContent('#correction-error')).includes('follow Accepted'));
