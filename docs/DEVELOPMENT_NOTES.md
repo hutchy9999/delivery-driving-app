@@ -231,3 +231,7 @@ Edit delivery now includes Restaurant wait (minutes), populated from the current
 The linked place wait cache and its last-ten average use the effective duration, including explicit manually confirmed waits beyond the automatic 90-minute timer cap. No duplicate sample is added. Completed-delivery history labels manual durations; shift review adds entered manual waits as durations and explains their exact timing/overlap is unknown. Automatic timed intervals still merge overlaps. Acceptance-to-completion, outside-order time, mileage and financial totals are unchanged. Backup v3 retains metadata; no migration needed. Cache v26.
 
 New checks exercise place renaming and preserved notes, Edit wait return navigation, one-to-seven-minute correction, original timestamp retention, averages/review, validation/cancel, zero and clearing the override. Existing correction, shift-review, functional and light/dark accessibility suites are rerun. Real phone data is not edited by development checks.
+
+## Follow-up: Order CTA wording (25 October 2026)
+
+At James's explicit request, the first Order CTA now reads Picked up instead of Taking it -> Pickup. This is a label-only change: it still accepts the offer and opens the Pickup stage; arrival, restaurant waiting and the later Got the food collection timestamp retain their existing behaviour. Cache v27.
