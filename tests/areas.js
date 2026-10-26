@@ -35,6 +35,9 @@ const BASE='http://localhost:8765/';
    const small=await page.locator('.area-tabs button,.area-filters button,.area-filters input,.area-filters select,.area-map-actions button,#area-navigate,#area-close,.area-rate-marker').evaluateAll(nodes=>nodes.filter(n=>n.offsetParent!==null).map(n=>({id:n.id||n.className,rect:n.getBoundingClientRect()})).filter(n=>n.rect.width<48||n.rect.height<48).map(n=>n.id));assert.deepEqual(small,[],`${width} touch targets`);
    await page.click('#area-close');
  }
+ // Exact lower evidence boundary: three jobs across two shifts become visible.
+ await page.evaluate(jobs=>localStorage.setItem('sp.deliveries',JSON.stringify(jobs)),[jobs[0],jobs[1],jobs[3]]);await page.reload();await page.click('#area-all');assert.equal(await page.locator('.area-rate-marker').count(),1);await page.locator('.area-rate-marker').click();assert.match(await page.textContent('#area-selection'),/3 jobs across 2 shifts/);
+ await page.evaluate(jobs=>localStorage.setItem('sp.deliveries',JSON.stringify(jobs)),jobs.slice(0,2));await page.reload();await page.click('#area-all');assert.equal(await page.locator('.area-rate-marker').count(),0);assert.match(await page.textContent('#area-availability'),/3 usable jobs across 2 recorded shifts/);
  // Postcode-only screenshots can gain approximate pickup positions on request.
  const unmapped=jobs.slice(0,6).map(d=>({...d,placeId:null,offerDetails:{pickup:'Shop, M5 3AA',dropoffs:['Customer, M1 1AA']}}));
  await page.evaluate(jobs=>{localStorage.setItem('sp.deliveries',JSON.stringify(jobs));localStorage.setItem('sp.places','[]');},unmapped);await page.reload();assert.equal(lookups,0);await page.click('#area-resolve');await page.waitForFunction(()=>document.querySelector('#area-lookup-status')?.textContent.includes('saved.'));assert.equal(lookups,1,'one request for shared pickup postcode');

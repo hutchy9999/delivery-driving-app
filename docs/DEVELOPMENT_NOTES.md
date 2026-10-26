@@ -1,5 +1,9 @@
 # Development notes and decisions
 
+## Follow-up: earlier map visibility (26 October 2026)
+
+At James's request, the current map minimum is **3 usable jobs across 2 recorded shifts**, reduced from the original 5/3 below. It applies independently to each area after time/provider filtering. These remain exploratory, limited-history results, not statistical confidence or a demand forecast. Empty-state and method text derive their thresholds from the shared constants. Boundary checks cover two jobs/two shifts being hidden, three jobs/two shifts appearing, and records from only one shift remaining hidden. Cache v31 publishes the update.
+
 ## Follow-up: observed pickup earnings map and navigation (26 October 2026)
 
 James approved the Areas mockups, requested no grey/unknown-area circles, discussed stable circle sizing/evidence thresholds, and asked for Google Maps directions from selected-area statistics. He then authorised building the feature. Areas replaces the bottom Places label; Earnings map and Saved places are local views. Existing `#places`/`#place/:id` routes, notebook edits, waits and parking remain intact. Shift has a small map shortcut below its existing controls.

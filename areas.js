@@ -3,7 +3,7 @@
 // Observed pickup-area job profitability, not demand or whole-shift earnings.
 // Stable 250 m-radius hexagons keep areas independent of filters/history growth.
 const EarningsAreas = (() => {
-  const RADIUS = 250, MIN_JOBS = 5, MIN_SHIFTS = 3;
+  const RADIUS = 250, MIN_JOBS = 3, MIN_SHIFTS = 2;
   const LAT_METRES = 111320, LON_METRES = LAT_METRES * Math.cos(53.48 * Math.PI / 180);
   const number = value => (typeof value === 'number' || (typeof value === 'string' && value.trim() !== '')) && Number.isFinite(Number(value)) ? Number(value) : null;
   const point = value => {

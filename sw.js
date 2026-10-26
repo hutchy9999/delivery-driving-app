@@ -2,7 +2,7 @@
 // server (and saves a copy). Without signal, or if the server takes longer
 // than a few seconds, uses the saved copy.
 // Bump VERSION when changing the list of files.
-const VERSION = 'v30';
+const VERSION = 'v31';
 const CACHE = 'shift-profit-' + VERSION;
 const FILES = ['./', 'index.html', 'style.css', 'calc.js', 'offer-ocr.js', 'areas.js', 'areas-ui.js', 'vendor/leaflet/leaflet.js', 'vendor/leaflet/leaflet.css', 'app.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png'];
