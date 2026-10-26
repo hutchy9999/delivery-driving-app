@@ -326,12 +326,13 @@ function go(hash) {
 }
 
 function render() {
+  if (disposeAreas) { disposeAreas(); disposeAreas = null; }
   if (offerScreenshotCancel) { offerScreenshotCancel(); offerScreenshotCancel = null; }
   clearInterval(timer);
   window.scrollTo(0, 0);
   const [route, id] = location.hash.slice(1).split('/');
   const view = $('#view');
-  const tab = { order: 'order', places: 'places', place: 'places', history: 'history', shift: 'history', edit: 'history', 'delivery-edit': 'history', add: 'history', settings: 'settings' }[route] || 'home';
+  const tab = { order: 'order', areas: 'places', places: 'places', place: 'places', history: 'history', shift: 'history', edit: 'history', 'delivery-edit': 'history', add: 'history', settings: 'settings' }[route] || 'home';
   document.querySelectorAll('.tab').forEach((b) => {
     b.classList.toggle('active', b.dataset.tab === tab);
     if (b.dataset.tab === tab) b.setAttribute('aria-current', 'page');
@@ -347,6 +348,7 @@ function render() {
     case 'delivery-edit': return renderDeliveryEdit(view, id);
     case 'order': return renderOrder(view);
     case 'places': return renderPlaces(view);
+    case 'areas': return renderAreas(view);
     case 'place': return renderPlace(view, id);
     case 'history': return renderHistory(view);
     case 'settings': return renderSettings(view);
@@ -355,7 +357,7 @@ function render() {
 }
 
 window.addEventListener('hashchange', render);
-document.querySelectorAll('.tab').forEach((b) => b.addEventListener('click', () => go('#' + b.dataset.tab)));
+document.querySelectorAll('.tab').forEach((b) => b.addEventListener('click', () => go('#' + (b.dataset.route || b.dataset.tab))));
 $('#gear').addEventListener('click', () => go('#settings'));
 document.addEventListener('click', (e) => {
   const button = e.target.closest('[data-platform]');
@@ -679,6 +681,7 @@ function renderHome(view) {
         ${hasUnfinishedOrder() ? '<a class="btn resume-order" href="#order">Continue current order →</a>' : ''}
         ${longShiftNote(active)}
       </div>
+      <a class="btn link" href="#areas">Explore earnings map</a>
       ${settingsNote}`;
     timer = setInterval(() => {
       const c = $('#clock');
@@ -716,6 +719,7 @@ function renderHome(view) {
     </div>
     ${settingsNote}
     ${shifts.length ? `<details class="card saved-summaries"><summary>Saved shift summaries</summary>${summaryCard('Today · all platforms', todays)}${summaryCard('This week · all platforms', weeks)}</details>` : ''}
+    <a class="btn link" href="#areas">Explore earnings map</a>
     ${backupNote()}
     <a class="btn link" href="#add">Forgot to start? Add a past shift</a>`;
 
@@ -1388,6 +1392,8 @@ function renderOffer(view) {
       platformId: order.acceptedAt ? order.platformId : platform.id,
       platformName: order.acceptedAt ? order.platformName : platform.name,
       shiftId: order.shiftId || store.active?.id || null, restaurantName: simple ? screenshotName : place?.name || screenshotName, settings: order.settings || store.settings });
+    const pickup = !simple && (EarningsAreas.point(place?.loc) || EarningsAreas.point(place?.spot));
+    if (pickup && !order.pickupLocation) setOrder({pickupLocation:{...pickup,source:place?.postcodeOnly?'postcode':'place',...(place?.postcode?{postcode:place.postcode}:{})}});
     render();
   };
   $('#clear').onclick = () => {
@@ -1687,6 +1693,7 @@ let placesSort = 'visits';
 
 function renderPlaces(view) {
   view.innerHTML = `
+    ${areaTabs('places')}
     ${store.platform !== 'all' ? `<p class="muted small">Collections recorded for ${esc(platformName(store.platform))}. Parking, notes and restaurant wait averages are shared.</p>` : ''}
     <div class="card">
       <label class="field"><span>Search your places</span>
@@ -1698,6 +1705,7 @@ function renderPlaces(view) {
     </div>
     <div id="place-list"></div>`;
 
+  bindAreaTabs(view);
   const search = $('#place-search');
   const show = () => {
     const q = search.value.trim().toLowerCase();

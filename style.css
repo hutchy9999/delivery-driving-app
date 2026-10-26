@@ -84,6 +84,45 @@ a { color: var(--accent); }
 .card.notice { background: var(--notice); }
 
 .muted { color: var(--muted); }
+
+/* Earnings areas: same local notebook, with an optional map view. */
+.area-tabs.chips.two { margin: 0 0 12px; }
+.area-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.area-heading > b { min-width: 0; }
+.area-heading .btn { width: auto; min-width: 56px; margin: 0; padding: 12px 8px; }
+.area-heading h2 { margin: 0; color: var(--text); text-transform: none; letter-spacing: 0; font-size: 20px; }
+.area-filters { padding: 10px 16px; }
+.area-filters form { margin-top: 12px; }
+.area-filters form[hidden] { display: none; }
+.area-filters select { min-height: 48px; width: 100%; font: inherit; font-size: 16px; color: var(--text); background: var(--bg); padding: 10px; border: 1px solid var(--border); border-radius: 12px; }
+.area-filters input[type=time] { font-size: 16px; min-width: 0; }
+.area-provider { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; font-size: 15px; }
+.area-provider select { width: auto; max-width: 70%; }
+.area-title { font-size: 17px; }
+.area-map-shell { position: relative; isolation: isolate; background: var(--card); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; }
+#earnings-map { height: 380px; width: 100%; z-index: 0; background: var(--bg); font: inherit; }
+.area-map-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding: 8px; border-top: 1px solid var(--border); }
+.area-map-actions .btn { width: auto; min-width: 48px; min-height: 48px; padding: 10px; margin: 0; }
+.area-legend { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font-size: 13px; margin-top: 12px; }
+.area-good { color: var(--pos); }
+.area-ok { color: var(--warn); }
+.area-poor { color: #b62e2e; }
+.area-rate-marker { border: 0; border-radius: 24px; background: transparent; color: var(--text); font: inherit; font-size: 15px; font-weight: 700; width: 80px; height: 48px; cursor: pointer; touch-action: manipulation; text-shadow: -1px -1px 2px var(--card),1px -1px 2px var(--card),-1px 1px 2px var(--card),1px 1px 2px var(--card); }
+.area-rate-marker:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.area-detail .big { text-align: left; margin-top: 12px; }
+#area-selection { scroll-margin-top: 12px; }
+.area-detail p { margin: 10px 0; }
+.area-detail .line { gap: 12px; }
+.area-list-buttons .btn { display: flex; justify-content: space-between; gap: 10px; text-align: left; }
+.area-list-buttons .btn > span { min-width: 0; overflow-wrap: anywhere; }
+.area-list-buttons .btn > b { white-space: nowrap; }
+.area-records > summary, .area-method > summary, #area-list summary { min-height: 48px; padding: 12px 0; cursor: pointer; }
+.area-records { margin-top: 12px; }
+.area-method p { font-size: 15px; }
+#earnings-map .leaflet-control-attribution { background: var(--card); color: var(--muted); font: inherit; font-size: 13px; padding: 2px 6px; }
+#earnings-map .leaflet-control-attribution a { color: var(--accent); display: inline-flex; align-items: center; min-height: 48px; }
+@media (prefers-color-scheme: dark) { #earnings-map .leaflet-tile-pane { filter: invert(.9) hue-rotate(180deg) brightness(.9) contrast(.9); } .area-poor { color: var(--neg); } }
+@media (max-width: 360px) { #earnings-map { height: 340px; } .area-heading { gap: 4px; } }
 .small { font-size: 14px; }
 .center { text-align: center; }
 small { color: var(--muted); font-size: 13px; }

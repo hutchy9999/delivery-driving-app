@@ -2,7 +2,7 @@
   "private": true,
   "scripts": {
     "serve": "python3 -m http.server 8765 --directory ..",
-    "test": "node offer-ocr.js && node simple-workflow.js && node functional.js && node delivery.js && node platforms.js && node charts.js && node shift-guard.js && node shift-review.js && node corrections.js && node manual-waits.js && node location-capture.js && node postcodes.js && node usability.js && node accessibility.js && node mobile.js"
+    "test": "node areas-model.js && node areas.js && node offer-ocr.js && node simple-workflow.js && node functional.js && node delivery.js && node platforms.js && node charts.js && node shift-guard.js && node shift-review.js && node corrections.js && node manual-waits.js && node location-capture.js && node postcodes.js && node usability.js && node accessibility.js && node mobile.js"
   },
   "devDependencies": {
     "axe-core": "4.10.2",
