@@ -319,6 +319,11 @@ a.btn.link { text-decoration: underline; }
 .offer-extra p { margin: 0 0 12px; }
 .offer-extra .field { margin-top: 4px; }
 .offer-extra:not([open]) > :not(summary) { display: none; }
+.screenshot-import { margin: 8px 0 12px; padding: 10px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.screenshot-import .field { margin-bottom: 4px; }
+.screenshot-import input[type=file] { width: 100%; min-width: 0; padding: 10px; font-size: 16px; }
+.screenshot-import p { margin: 6px 0; }
+.screenshot-import [hidden] { display: none; }
 .offer-entry #clear { margin: 8px 0 0; padding: 8px; }
 @media (max-width: 360px) {
   .compact-breakdown { grid-template-columns: 1fr; }

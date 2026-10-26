@@ -318,6 +318,7 @@ function platformPlaces() {
 // ---------- Routing (hash based, so the Android back button works) ----------
 
 let timer = null;
+let offerScreenshotCancel = null;
 
 function go(hash) {
   if (location.hash === hash) render();
@@ -325,6 +326,7 @@ function go(hash) {
 }
 
 function render() {
+  if (offerScreenshotCancel) { offerScreenshotCancel(); offerScreenshotCancel = null; }
   clearInterval(timer);
   window.scrollTo(0, 0);
   const [route, id] = location.hash.slice(1).split('/');
@@ -1257,6 +1259,16 @@ function renderOffer(view) {
         <label class="field"><span>Miles</span>
           <input name="miles" type="number" inputmode="decimal" step="0.1" min="0" placeholder="e.g. 2.5" value="${esc(o.miles)}"></label>
       </div>
+      <section class="screenshot-import" aria-labelledby="screenshot-heading">
+        <label class="field"><span id="screenshot-heading">Offer screenshot <small>(optional)</small></span><input id="offer-screenshot" type="file" accept="image/png,image/jpeg,image/webp,image/bmp"></label>
+        <p class="muted small" id="screenshot-status" role="status">Choose your latest screenshot. Read locally; the image is not uploaded or saved by this app.</p>
+        <button class="btn link" id="cancel-screenshot" type="button" hidden>Use manual entry</button>
+        <details class="net-details screenshot-review" id="screenshot-review"${o.offerDetails ? ' open' : ' hidden'}><summary>Check extracted locations</summary>
+          <label class="field"><span>Pickup name and address</span><textarea id="screenshot-pickup" rows="2" maxlength="600">${esc(o.offerDetails?.pickup || '')}</textarea></label>
+          <label class="field"><span>Drop-offs <small>(one address per line)</small></span><textarea id="screenshot-dropoffs" rows="3" maxlength="2400">${esc((o.offerDetails?.dropoffs || []).join('\n'))}</textarea></label>
+          <p class="muted small">Check these before Confirm. Blank or uncertain fields can be left out. Locations are stored as text, not verified map positions.</p>
+        </details>
+      </section>
       <div id="order-result" class="offer-preview" aria-live="polite"></div>
       ${simple ? '' : '<div id="offer-place"></div>'}
       <p class="error" id="offer-error" role="alert" hidden></p>
@@ -1270,6 +1282,41 @@ function renderOffer(view) {
     </form>`;
 
   const f = $('#of');
+  const screenshot = $('#offer-screenshot'), importStatus = $('#screenshot-status'), cancelScreenshot = $('#cancel-screenshot');
+  const pickupInput = $('#screenshot-pickup'), dropoffInput = $('#screenshot-dropoffs');
+  const saveLocations = () => setOrder({offerDetails:{...store.order.offerDetails,pickup:pickupInput.value.trim(),dropoffs:dropoffInput.value.split('\n').map(value=>value.trim()).filter(Boolean)}});
+  pickupInput.oninput = saveLocations; dropoffInput.oninput = saveLocations;
+  screenshot.onchange = () => {
+    if (offerScreenshotCancel) offerScreenshotCancel();
+    const file = screenshot.files[0];
+    if (!file) return;
+    if (!window.OfferOCR?.read) { screenshot.value=''; importStatus.textContent='The screenshot reader is unavailable. Refresh the app or enter details manually.'; return; }
+    const controller = new AbortController();let done = false;
+    const before = {fee:f.fee.value,miles:f.miles.value,pickup:pickupInput.value,dropoffs:dropoffInput.value};
+    const stop = message => {
+      if (done) return;done = true;controller.abort();clearTimeout(deadline);screenshot.value='';cancelScreenshot.hidden=true;
+      if (message && f.isConnected) importStatus.textContent=message;
+    };
+    const deadline = setTimeout(()=>stop('Reading reached the 10-second limit. Check your connection on first use, try again, or enter the details manually.'),10000);
+    offerScreenshotCancel=()=>stop();
+    cancelScreenshot.hidden=false;cancelScreenshot.onclick=()=>stop('Reading stopped. Enter fee and miles manually and continue.');
+    importStatus.textContent='Reading screenshot… up to 10 seconds. You can still enter values or Confirm.';
+    OfferOCR.read(file,{signal:controller.signal,onProgress:message=>{if(!done&&f.isConnected)importStatus.textContent=message+' You can continue manually.';}}).then(result=>{
+      if(done || !f.isConnected || store.order.acceptedAt || store.order.step !== 'offer') return;
+      const warnings=[...result.warnings];
+      for(const key of ['fee','miles']) {
+        if(result[key] !== null && f[key].value === before[key]) f[key].value=String(result[key]);
+        else if(f[key].value !== before[key]) warnings.push('Your edited '+key+' was kept.');
+      }
+      if(pickupInput.value === before.pickup)pickupInput.value=result.pickup;
+      if(dropoffInput.value === before.dropoffs)dropoffInput.value=result.dropoffs.join('\n');
+      setOrder({offerDetails:{source:'screenshot',importedAt:new Date().toISOString(),pickup:pickupInput.value.trim(),dropoffs:dropoffInput.value.split('\n').map(value=>value.trim()).filter(Boolean)}});
+      $('#screenshot-review').hidden=false;$('#screenshot-review').open=true;update();
+      importStatus.textContent='Reading complete—check fee, mileage and locations before Confirm. '+warnings.join(' ');
+    }).catch(error=>{
+      if(!done&&f.isConnected)importStatus.textContent='Could not read this screenshot. '+(error.message?.includes('Choose a')?error.message:'Enter the details manually or try again.');
+    }).finally(()=>stop());
+  };
   const update = () => {
     $('#offer-error').hidden = true;
     setOrder({ fee: f.fee.value.trim(), miles: f.miles.value.trim(), mins: simple ? '' : f.mins.value.trim() });
@@ -1335,11 +1382,12 @@ function renderOffer(view) {
     if (active && !active.id) store.active = { ...active, id: newId() };
     const order = store.order;
     const place = getPlace(order.placeId);
+    const screenshotName = order.offerDetails?.pickup?.split(',')[0]?.trim() || '';
     setOrder({ step: simple ? 'deliver' : 'pickup', id: order.id || newId(), acceptedAt: order.acceptedAt || new Date().toISOString(),
       workflowMode:simple ? 'simple' : 'detailed', ...(simple ? {placeId:null,arrivedAt:null,collectedAt:null,mins:''} : {}),
       platformId: order.acceptedAt ? order.platformId : platform.id,
       platformName: order.acceptedAt ? order.platformName : platform.name,
-      shiftId: order.shiftId || store.active?.id || null, restaurantName: simple ? '' : place?.name || '', settings: order.settings || store.settings });
+      shiftId: order.shiftId || store.active?.id || null, restaurantName: simple ? screenshotName : place?.name || screenshotName, settings: order.settings || store.settings });
     render();
   };
   $('#clear').onclick = () => {
@@ -1458,6 +1506,7 @@ function renderDeliver(view) {
       <p class="muted small">${simple ? 'No intermediate steps to record. Your shift clock keeps counting between jobs.' : 'Includes driving, parking, walking and handover. Your shift clock keeps counting between orders.'}</p>
       ${o.fee !== '' ? `<div class="line"><span>Offer fee</span><b>${money(+o.fee)}</b></div>` : ''}
       ${simple ? `<div class="line"><span>Offer miles</span><b>${num(+o.miles)} mi</b></div>` : `<div class="line"><span>Food collected</span><b>${timeLabel(o.collectedAt)}</b></div>`}
+      ${offerLocations(o)}
     </div>
     <p id="delivery-error" class="error" role="alert" hidden></p>
     <button class="btn link" id="cancel-delivery">Cancel this delivery</button>`;
@@ -1489,6 +1538,14 @@ function renderDeliver(view) {
 }
 
 // Completed orders keep their own restaurant name, even if a place is later deleted.
+function offerLocations(record) {
+  const details=record.offerDetails;
+  if(!details || (!details.pickup && !details.dropoffs?.length))return '';
+  return `<details class="net-details"><summary>Offer locations</summary>
+    ${details.pickup ? `<p class="small"><b>Pickup</b><br>${esc(details.pickup)}</p>` : ''}
+    ${(details.dropoffs || []).map((address,index)=>`<p class="small"><b>Drop-off ${index+1}</b><br>${esc(address)}</p>`).join('')}
+    <p class="muted small">From the offer screenshot/review. Text only; not verified map locations.</p></details>`;
+}
 function deliveryHistory(deliveries = store.deliveries) {
   if (!deliveries.length) return '';
   const interval = (a, b) => a && b ? duration(Math.max(0, new Date(b) - new Date(a)) / 3600000) : 'Not recorded';
@@ -1514,6 +1571,7 @@ function deliveryHistory(deliveries = store.deliveries) {
         ${line('Collection to completion', interval(d.collectedAt, d.completedAt))}
         ${line('Acceptance to completion', interval(d.acceptedAt, d.completedAt))}
         ${d.miles !== '' ? line('Miles from offer', num(+d.miles)) : ''}
+        ${offerLocations(d)}
         ${d.deliveryLocation ? `${line('Delivery location', 'Saved · ±' + Math.ceil(d.deliveryLocation.accuracy) + ' m')}
           <p class="muted small">${esc(d.deliveryLocation.latitude)}, ${esc(d.deliveryLocation.longitude)} · captured ${esc(dateLabel(d.deliveryLocation.capturedAt))} ${esc(timeLabel(d.deliveryLocation.capturedAt))}. This is your completion position, not a measured route.</p>
           <button class="btn link" data-remove-location="${esc(d.id)}">Remove saved location</button>` : ''}
