@@ -7,7 +7,7 @@ A personal web app for delivery driving. It shows your **real profit per hour** 
 
 ## Using it
 
-**Areas → Earnings map** shows recorded pickup-area profitability. Only areas with at least **5 usable jobs across 3 recorded shifts** get a coloured circle; there are no grey placeholders. It starts at the current weekday/time, using acceptance times within an hour either side. **Show all times** explores general history; **Try same time on weekdays** broadens to Monday–Friday. The map's provider filter is local and does not change the provider for your next order. **Saved places** keeps the existing restaurant notebook. Shift also has an **Explore earnings map** link.
+**Areas → Earnings map** shows recorded pickup-area profitability. Only areas with at least **3 usable jobs across 2 recorded shifts** get a coloured circle; there are no grey placeholders. It starts at the current weekday/time, using acceptance times within an hour either side. **Show all times** explores general history; **Try same time on weekdays** broadens to Monday–Friday. The map's provider filter is local and does not change the provider for your next order. **Saved places** keeps the existing restaurant notebook. Shift also has an **Explore earnings map** link.
 
 Tap an area for combined estimated job profit/hour, payments, costs, job time and recorded jobs. **Navigate in Google Maps** opens driving directions, preferring a saved parking spot in that area, then a recorded pickup. Postcode-centre destinations are clearly marked as branch-unconfirmed. Google Maps chooses the route; the app does not start background tracking. Choose/review directions while safely parked.
 
