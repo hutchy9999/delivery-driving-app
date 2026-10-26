@@ -225,6 +225,7 @@ const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL:'
 
   // 12c. places + order flow (settings: £1.70/L, 32 MPG, 5p/mile, £1.16/hr, 15 mph, 8 min stops, 3 min handover)
   await tap('[data-tab=places]');
+  await tap('[data-area-view=places]');
   ok((await p.textContent('main')).includes('No collections recorded'), 'platform places empty state');
   await tap('[data-tab=order]');
   ok((await p.textContent('.steps')).replace(/\s+/g, ' ').includes('1 Offer'), 'offer step shown');
@@ -338,6 +339,7 @@ const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL:'
   // Places tab
   await chooseProvider(p, 'all');
   await tap('[data-tab=places]');
+  await tap('[data-area-view=places]');
   ok((await p.textContent('.place-row')).includes("Nando's") && (await p.textContent('.place-row')).includes('spot saved'), 'place listed');
   await p.fill('#place-search', 'Wok');
   await tap('#add-place');
@@ -404,7 +406,7 @@ const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL:'
   // Places search matches the address
   await chooseProvider(p, 'all');
   await p.evaluate(() => { const ps = JSON.parse(localStorage['sp.places']); ps.push({ id: 'addr', name: 'Golden Wok', area: '', address: 'Oldham Street, Ancoats, M4 1AA', note: '', parkType: '', parkLimit: '', ease: '', spot: null, waits: [] }); localStorage['sp.places'] = JSON.stringify(ps); });
-  await tap('[data-tab=places]'); await p.fill('#place-search', 'ancoats');
+  await tap('[data-tab=places]'); await tap('[data-area-view=places]'); await p.fill('#place-search', 'ancoats');
   ok((await p.textContent('#place-list')).includes('Golden Wok'), 'places search matches the address');
   // Settings: a blank box keeps its value instead of becoming 0
   await tap('#gear');
