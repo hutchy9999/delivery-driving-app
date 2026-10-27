@@ -1,1 +1,9 @@
 node_modules/
+build/
+private/
+android/.gradle/
+android/local.properties
+android/app/build/
+*.keystore
+*.jks
+*backup*.json

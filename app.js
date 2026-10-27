@@ -234,7 +234,7 @@ function backupNote() {
 
 function bindBackupNote() {
   const b = $('#backup-now');
-  if (b) b.onclick = () => { exportBackup(); render(); };
+  if (b) b.onclick = async () => { await exportBackup(); render(); };
 }
 
 function profitClass(n) {
@@ -327,6 +327,8 @@ function go(hash) {
 }
 
 function render() {
+  window.Diagnostics?.rendered();
+  if(window.NativeTracking)setTimeout(()=>window.NativeTracking.sync(),0);
   if (disposeOfferTraffic) { disposeOfferTraffic(); disposeOfferTraffic = null; }
   if (disposeAreas) { disposeAreas(); disposeAreas = null; }
   if (offerScreenshotCancel) { offerScreenshotCancel(); offerScreenshotCancel = null; }
@@ -696,6 +698,7 @@ function renderHome(view) {
       if (hasUnfinishedOrder()) return renderUnfinishedOrder(view);
       if (confirm('Cancel this shift? Nothing will be saved.')) {
         store.active = null;
+        window.NativeTracking?.endShift();
         render();
       }
     };
@@ -860,7 +863,7 @@ function renderShiftForm(view, mode, id) {
     shifts.push(s);
     shifts.sort((a, b) => new Date(b.start) - new Date(a.start));
     store.shifts = shifts;
-    if (mode === 'end') store.active = null;
+    if (mode === 'end') { store.active = null; window.NativeTracking?.endShift(); }
     toast('Shift saved');
     // Replace the form in history so "back" doesn't return to it.
     location.replace('#shift/' + s.id);
@@ -1411,7 +1414,7 @@ function renderOffer(view) {
     // Also give shifts started by an older app version a stable link.
     if (active && !active.id) store.active = { ...active, id: newId() };
     const order = store.order;
-    const place = simple ? (TrafficSettings.config().enabled ? matchedPickup() : null) : getPlace(order.placeId);
+    const place = simple ? ((TrafficSettings.config().enabled||window.NativeTracking?.isNative) ? matchedPickup() : null) : getPlace(order.placeId);
     const screenshotName = order.offerDetails?.pickup?.split(',')[0]?.trim() || '';
     setOrder({ step: simple ? 'deliver' : 'pickup', id: order.id || newId(), acceptedAt: order.acceptedAt || new Date().toISOString(),
       workflowMode:simple ? 'simple' : 'detailed', ...(simple ? {placeId:place?.id||null,arrivedAt:null,collectedAt:null,mins:''} : {}),
@@ -1420,6 +1423,7 @@ function renderOffer(view) {
       shiftId: order.shiftId || store.active?.id || null, restaurantName: place?.name || screenshotName, settings: order.settings || store.settings });
     const pickup = place && (EarningsAreas.point(place.loc) || EarningsAreas.point(place.spot));
     if (pickup && !order.pickupLocation) setOrder({pickupLocation:{...pickup,source:place?.postcodeOnly?'postcode':'place',...(place?.postcode?{postcode:place.postcode}:{})}});
+    window.NativeTracking?.offer(store.order.id,place,trafficState.result?.pickupTarget);
     render();
   };
   $('#clear').onclick = () => {
@@ -1604,7 +1608,8 @@ function deliveryHistory(deliveries = store.deliveries) {
         ${d.workflowMode === 'simple' ? '<p class="muted small">Simple mode · restaurant stages not recorded.</p>' : ''}
         ${line('Food collected', d.collectedAt ? timeLabel(d.collectedAt) : 'Not recorded')}
         ${line('Delivered', timeLabel(d.completedAt))}
-        ${line('Restaurant wait', deliveryWaitMinutes(d) !== null ? num(Math.round(deliveryWaitMinutes(d)*10)/10) + ' min' + (manualWaitMinutes(d) !== null ? ' · manual' : '') : 'Not recorded')}
+        ${line(d.collectionStop?.eligible&&manualWaitMinutes(d)===null&&!d.arrivedAt?'Collection stop (GPS estimate)':'Restaurant wait', deliveryWaitMinutes(d) !== null ? num(Math.round(deliveryWaitMinutes(d)*10)/10) + ' min' + (manualWaitMinutes(d) !== null ? ' · manual' : '') : 'Not recorded')}
+        ${d.collectionStop?`<p class="muted small">GPS collection-stop estimate: ${num(d.collectionStop.minutes)} min${d.collectionStop.eligible?' · included in collection history':' · uncertain; excluded from learned waits'}. Includes parking/walking; not an exact food-ready timestamp.</p>`:''}
         ${line('Collection to completion', interval(d.collectedAt, d.completedAt))}
         ${line('Acceptance to completion', interval(d.acceptedAt, d.completedAt))}
         ${d.miles !== '' ? line('Miles from offer', num(+d.miles)) : ''}
@@ -2033,7 +2038,8 @@ function renderSettings(view) {
   $('#file').onchange = (e) => { importBackup(e.target.files[0]); e.target.value = ''; };
 }
 
-function download(filename, text, type) {
+async function download(filename, text, type) {
+  if(window.NativeTracking)return window.NativeTracking.exportFile(filename,text,type,filename.startsWith('shift-profit-backup-'));
   const url = URL.createObjectURL(new Blob([text], { type }));
   const a = document.createElement('a');
   a.href = url;
@@ -2042,6 +2048,7 @@ function download(filename, text, type) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return true;
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -2063,11 +2070,11 @@ function exportCsv() {
   download(`shifts-${today()}.csv`, [cols.join(','), ...rows].join('\n'), 'text/csv');
 }
 
-function exportBackup() {
+async function exportBackup() {
   const data = { app: 'shift-profit', version: 3, exportedAt: new Date().toISOString(), settings: store.settings, shifts: store.shifts, deliveries: store.deliveries, order: store.order, active: store.active, places: store.places, area: store.area, platforms: store.platforms, selectedPlatform: store.platform, captureDeliveryLocation:captureEnabled(), workflowMode:workflowMode() };
-  download(`shift-profit-backup-${today()}.json`, JSON.stringify(data, null, 2), 'application/json');
+  if(!await download(`shift-profit-backup-${today()}.json`, JSON.stringify(data, null, 2), 'application/json'))return;
   store.lastBackup = new Date().toISOString();
-  toast('Backup saved to your Downloads folder');
+  toast(window.NativeTracking?'Backup saved to your chosen location':'Backup saved to your Downloads folder');
 }
 
 async function importBackup(file) {
@@ -2085,6 +2092,7 @@ async function importBackup(file) {
       .filter((d) => d && d.id && (d.workflowMode === 'simple' || (d.collectedAt && !isNaN(new Date(d.collectedAt)))) && d.completedAt && !isNaN(new Date(d.completedAt)));
     const count = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
     if (!confirm(`Restore ${count(shifts.length, 'shift')} and ${count(places.length, 'place')} from this backup? It also contains ${count(deliveries.length, 'completed delivery')}. This replaces all records and the current order on the phone.`)) return;
+    if(window.NativeTracking)await window.NativeTracking.restore(data);
     stopDeliveryCapture(); deliveryCapture = null; showDeliveryCapture();
     save('sp.captureDeliveryLocation', data.captureDeliveryLocation !== false);
     if (['simple','detailed'].includes(data.workflowMode)) save('sp.workflowMode',data.workflowMode);
@@ -2112,7 +2120,7 @@ async function importBackup(file) {
 
 render();
 
-if ('serviceWorker' in navigator) {
+if ('serviceWorker' in navigator && !window.Capacitor?.isNativePlatform?.()) {
   // When an update takes over, reload to show it, but only on screens where
   // nothing can be half typed. Elsewhere it shows next time the app opens.
   const hadController = !!navigator.serviceWorker.controller;
