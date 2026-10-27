@@ -21,7 +21,7 @@
     const fingerprint=JSON.stringify(value);if(fingerprint!==lastWorkflow){record('workflow',value);lastWorkflow=fingerprint;}
     const route=(location.hash||'#home').split('/')[0];if(route!==lastRoute){record('screen',{width:innerWidth,height:innerHeight});lastRoute=route;}
   }
-  function report(){return {app:'shift-profit-diagnostics',version:1,build:root.NativeTracking?'android-trial-0.1.0':'web-v33',exportedAt:new Date().toISOString(),scope:'Up to 7 days / latest 1500 browser events and 5000 native events. No addresses, coordinates, screenshots, fees or API keys.',environment:{native:!!root.NativeTracking,online:navigator.onLine,width:innerWidth,height:innerHeight},events:entries()};}
+  function report(){return {app:'shift-profit-diagnostics',version:1,build:root.NativeTracking?'android-trial-0.1.1':'web-v33',exportedAt:new Date().toISOString(),scope:'Up to 7 days / latest 1500 browser events and 5000 native events. No addresses, coordinates, screenshots, fees or API keys.',environment:{native:!!root.NativeTracking,online:navigator.onLine,width:innerWidth,height:innerHeight},events:entries()};}
   async function exportLog(){record('diagnostics_export');const text=JSON.stringify(report(),null,2),filename='shift-profit-diagnostics-'+new Date().toISOString().slice(0,10)+'.json';
     const saved=root.NativeTracking?await root.NativeTracking.exportFile(filename,text,'application/json',false,true):await download(filename,text,'application/json');
     if(saved)toast('Diagnostics saved. You can share this file for review.');

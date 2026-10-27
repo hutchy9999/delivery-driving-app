@@ -1,5 +1,9 @@
 # Development notes and decisions
 
+## Follow-up: preserve pickup target on APK reopening (27 October 2026)
+
+At James's request, fix only the first review finding: a recreated WebView forgot its transient pickup target and overwrote the native service's still-valid target with an empty one. Native state now reports the attached job ID and whether it has a matching, unexpired, unfinished pickup target, without exposing coordinates. UI reconciliation preserves that target when it has no replacement. Existing expiry is not extended, and targets from expired/different jobs are not reused. A regression test reproduced the overwrite before the change and passes afterwards, alongside the existing native-adapter checks. APK version 0.1.1-trial replaces 0.1.0-trial using the same signing identity. Other review findings are intentionally outside this fix.
+
 ## Follow-up: optional Android trial and diagnostics (27 October 2026)
 
 James requested an APK preserving existing features with on-shift GPS and automatic pickup-stop estimates to avoid duplicating platform taps. His Nothing Phone (2a) runs Android16. Capacitor8 packages shared screens; a Java location foreground service records private SQLite points/events while other apps are open or the screen is locked. Tracking is opt-in and shift-scoped, requests ten-second cadence (five-second minimum), and has visible notification/pause and explicit end/cancel stop. Raw traces are not automatically uploaded. Final costs still use odometers.

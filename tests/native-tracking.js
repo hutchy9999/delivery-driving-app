@@ -1,7 +1,21 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const {chromium}=require('playwright');
 const base='http://localhost:8765/';
-(async()=>{const browser=await chromium.launch();try{
+async function verifyTargetRecovery(){
+ const vm=require('node:vm'),source=fs.readFileSync(path.join(__dirname,'../native-tracking.js'),'utf8');
+ const records={active:{id:'recovery-shift'},order:{id:'recovery-job',shiftId:'recovery-shift',acceptedAt:new Date().toISOString()},deliveries:[],places:[]};
+ let job={},writes=0;
+ const plugin={state:async()=>({shiftId:records.active.id,running:true,jobId:job.id||'',hasPickupTarget:Number.isFinite(job.lat)&&job.expiresAt>Date.now()}),
+   setJob:async args=>{job={...args.job};writes++;},events:async()=>({events:[]})};
+ function reopen(){const box={Capacitor:{Plugins:{ShiftTracker:plugin}},store:records,load:()=>true,getPlace:()=>null,EarningsAreas:{point:()=>null},document:{hidden:false,addEventListener(){}},location:{hash:'#order'},setInterval(){},Date};box.window=box;vm.runInNewContext(source,box);return box.NativeTracking;}
+ let adapter=reopen();adapter.offer(records.order.id,null,{lat:53.48,lng:-2.25});await adapter.sync();
+ const original={...job};assert.equal(writes,1);assert.equal(job.lat,53.48);
+ adapter=reopen();await adapter.sync();assert.equal(writes,1,'reopening must not overwrite the native pickup target');assert.deepEqual(job,original,'recovery must preserve the original expiry');
+ job.expiresAt=Date.now()-1;adapter=reopen();await adapter.sync();assert.equal(Number.isFinite(job.lat),false,'expired targets must not be recovered');
+ job={...original};records.order={...records.order,id:'different-job'};adapter=reopen();await adapter.sync();assert.equal(job.id,'different-job');assert.equal(Number.isFinite(job.lat),false,'a new job must not inherit the previous pickup');
+ console.log('Pickup-target recovery passed: reopen preserves the matching native target without extending expiry; expired and different-job targets are not reused.');
+}
+(async()=>{await verifyTargetRecovery();const browser=await chromium.launch();try{
  const context=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,serviceWorkers:'block'});
  await context.route('**/*',r=>new URL(r.request().url()).hostname==='localhost'?r.continue():r.abort());
  await context.route(base,async route=>{const response=await route.fetch();await route.fulfill({response,body:(await response.text()).replace('<script src="app.js"></script>','<script src="native-tracking.js"></script><script src="app.js"></script>')});});

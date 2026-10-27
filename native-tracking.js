@@ -55,7 +55,12 @@
         const place=getPlace(order.placeId),known=EarningsAreas.point(place?.loc)||EarningsAreas.point(place?.spot);
         if(!target&&known)target={...known,precise:!place?.postcodeOnly};
         const signature=JSON.stringify({id:order.id,shiftId:active.id,...(target?{lat:target.lat,lng:target.lng,precise:target.precise}:{} )});
-        if(signature!==lastJob){await plugin.setJob({job:{...JSON.parse(signature),expiresAt:Date.now()+6*3600000}});lastJob=signature;}
+        if(signature!==lastJob){
+          // A reopened WebView has lost its transient Google target. Keep the
+          // matching, unexpired target already held by the native service.
+          if(target||state.jobId!==order.id||state.hasPickupTarget!==true)await plugin.setJob({job:{...JSON.parse(signature),expiresAt:Date.now()+6*3600000}});
+          lastJob=signature;
+        }
       }else if(lastJob){await plugin.setJob({job:{}});lastJob='';offerTarget=null;}
       const {events=[]}=await plugin.events();const acknowledged=[];let changed=false;
       for(const event of events){const applied=applyEvent(event);if(applied!==null)acknowledged.push(event.id);if(applied)changed=true;}

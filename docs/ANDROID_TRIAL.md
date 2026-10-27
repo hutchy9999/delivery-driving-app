@@ -1,4 +1,4 @@
-# Android trial 0.1.0
+# Android trial 0.1.1
 
 First device-trial build for James's Nothing Phone (2a), Android16. Capacitor8 packages existing screens; a Java foreground service and SQLite database add shift GPS. Targets API36, minimum Android10. This is not a Play Store release.
 

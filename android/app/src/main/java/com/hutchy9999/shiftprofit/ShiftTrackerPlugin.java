@@ -20,7 +20,16 @@ import java.nio.charset.StandardCharsets;
 })
 public final class ShiftTrackerPlugin extends Plugin {
     private TrackingStore store(){return TrackingStore.get(getContext());}
-    @PluginMethod public void state(PluginCall call){try{JSONObject value=store().summary();value.put("running",ShiftLocationService.running);value.put("precisePermission",getPermissionState("location")==PermissionState.GRANTED);call.resolve(JSObject.fromJSONObject(value));}catch(Exception e){call.reject("Could not read native tracking state");}}
+    @PluginMethod public void state(PluginCall call){try{
+        JSONObject value=store().summary(),job=store().object("job");
+        double lat=job.optDouble("lat",Double.NaN),lng=job.optDouble("lng",Double.NaN);
+        value.put("jobId",job.optString("id",""));
+        value.put("hasPickupTarget",!job.optBoolean("done",false)&&job.optLong("expiresAt",0)>System.currentTimeMillis()
+            &&job.optString("shiftId","").equals(value.optString("shiftId",""))
+            &&Double.isFinite(lat)&&Double.isFinite(lng)&&Math.abs(lat)<=90&&Math.abs(lng)<=180);
+        value.put("running",ShiftLocationService.running);value.put("precisePermission",getPermissionState("location")==PermissionState.GRANTED);
+        call.resolve(JSObject.fromJSONObject(value));
+    }catch(Exception e){call.reject("Could not read native tracking state");}}
     @PluginMethod public void start(PluginCall call){
         String shift=call.getString("shiftId","");if(shift.isEmpty()||shift.length()>200){call.reject("A valid current shift is required");return;}
         if(getPermissionState("location")!=PermissionState.GRANTED||(Build.VERSION.SDK_INT>=33&&getPermissionState("notifications")!=PermissionState.GRANTED)){
@@ -80,7 +89,7 @@ public final class ShiftTrackerPlugin extends Plugin {
             try{
                 String text=call.getString("text","");
                 if(call.getBoolean("includeTracking",false)){JSONObject backup=new JSONObject(text);backup.put("nativeTracking",store().exportData());text=backup.toString(2);}
-                if(call.getBoolean("includeDiagnostics",false)){JSONObject log=new JSONObject(text);log.put("nativeEvents",store().diagnostics());log.put("androidApi",Build.VERSION.SDK_INT);log.put("appVersion","0.1.0-trial");text=log.toString(2);}
+                if(call.getBoolean("includeDiagnostics",false)){JSONObject log=new JSONObject(text);log.put("nativeEvents",store().diagnostics());log.put("androidApi",Build.VERSION.SDK_INT);log.put("appVersion","0.1.1-trial");text=log.toString(2);}
                 try(OutputStream output=getContext().getContentResolver().openOutputStream(uri,"wt")){if(output==null)throw new IllegalStateException();output.write(text.getBytes(StandardCharsets.UTF_8));}
                 JSObject out=new JSObject();out.put("saved",true);call.resolve(out);
             }catch(Exception e){call.reject("Could not save the backup. Choose a writable destination and retry.");}
