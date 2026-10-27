@@ -363,6 +363,16 @@ a.btn.link { text-decoration: underline; }
 .screenshot-import input[type=file] { width: 100%; min-width: 0; padding: 10px; font-size: 16px; }
 .screenshot-import p { margin: 6px 0; }
 .screenshot-import [hidden] { display: none; }
+.traffic-status { margin: 8px 0; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.traffic-status[hidden] { display: none; }
+.traffic-status p { margin: 4px 0; }
+.traffic-breakdown > summary { min-height: 48px; padding: 12px 0; cursor: pointer; font-size: 15px; }
+.traffic-drive { padding: 8px; border: 1px solid var(--border); border-radius: 10px; margin: 8px 0; }
+.traffic-drive b { display: block; font-size: 15px; }
+.google-attribution { display: block; margin-top: 4px; font-family: sans-serif; font-size: 13px; font-weight: 400; color: #5e5e5e; white-space: nowrap; }
+@media (prefers-color-scheme: dark) { .google-attribution { color: #fff; } }
+#traffic-settings-host a { display: inline-flex; align-items: center; min-height: 48px; min-width: 48px; }
+#traffic-settings-host input[type=password] { font-size: 16px; }
 .offer-entry #clear { margin: 8px 0 0; padding: 8px; }
 @media (max-width: 360px) {
   .compact-breakdown { grid-template-columns: 1fr; }
