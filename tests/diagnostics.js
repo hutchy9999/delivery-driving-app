@@ -1,0 +1,15 @@
+const assert=require('node:assert/strict'),fs=require('node:fs');
+const {chromium}=require('playwright');
+(async()=>{const browser=await chromium.launch();try{const context=await browser.newContext({serviceWorkers:'block',acceptDownloads:true});
+ await context.route('**/*',r=>{const u=new URL(r.request().url());return u.hostname==='localhost'||u.protocol==='blob:'?r.continue():r.abort();});
+ const page=await context.newPage();page.on('dialog',d=>d.accept());await page.goto('http://localhost:8765/#settings');
+ await page.locator('#diagnostics-export').waitFor();
+ await page.evaluate(()=>{Diagnostics.record('test_event',{count:7,status:'ready',key:'SECRET_TEST_KEY',address:'PRIVATE_TEST_ADDRESS',lat:53.4,lng:-2.1,fee:20,error:'PRIVATE_TEST_ERROR'});});
+ let report=await page.evaluate(()=>Diagnostics.report());const safe=report.events.find(e=>e.code==='test_event');assert.equal(safe.count,7);assert.equal(safe.status,'ready');assert.ok(!JSON.stringify(report).includes('PRIVATE_TEST'));assert.ok(!JSON.stringify(report).includes('SECRET_TEST'));assert.ok(!Object.hasOwn(safe,'lat'));
+ const download=page.waitForEvent('download');await page.click('#diagnostics-export');report=JSON.parse(fs.readFileSync(await(await download).path(),'utf8'));assert.equal(report.app,'shift-profit-diagnostics');assert.equal(Object.hasOwn(report,'deliveries'),false);assert.ok(report.events.some(e=>e.code==='diagnostics_export'));
+ await page.evaluate(()=>{const now=Date.now();localStorage.setItem('sp.diagnostics',JSON.stringify([{at:now-8*86400000,code:'expired'},...Array.from({length:1600},(_,count)=>({at:now,code:'bounded',count}))]));Diagnostics.record('last_event');});
+ report=await page.evaluate(()=>Diagnostics.report());assert.equal(report.events.length,1500);assert.equal(report.events.at(-1).code,'last_event');assert.equal(report.events.some(e=>e.code==='expired'),false);
+ await page.evaluate(()=>{store.deliveries=[{id:'preserved'}];});await page.click('#diagnostics-clear');assert.equal(await page.evaluate(()=>store.deliveries[0].id),'preserved');assert.equal(await page.evaluate(()=>Diagnostics.report().events.length),0);
+ await page.evaluate(()=>{const set=Storage.prototype.setItem;Storage.prototype.setItem=()=>{throw new DOMException('Full','QuotaExceededError');};try{Diagnostics.record('storage_full');}finally{Storage.prototype.setItem=set;}});
+ console.log('Diagnostics passed: technical event export, sensitive-field allowlist, bounded retention, clear without data loss, and storage-failure tolerance.');
+ }finally{await browser.close();}})().catch(e=>{console.error(e);process.exitCode=1;});
