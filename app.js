@@ -319,6 +319,7 @@ function platformPlaces() {
 
 let timer = null;
 let offerScreenshotCancel = null;
+let disposeOfferTraffic = null;
 
 function go(hash) {
   if (location.hash === hash) render();
@@ -326,6 +327,7 @@ function go(hash) {
 }
 
 function render() {
+  if (disposeOfferTraffic) { disposeOfferTraffic(); disposeOfferTraffic = null; }
   if (disposeAreas) { disposeAreas(); disposeAreas = null; }
   if (offerScreenshotCancel) { offerScreenshotCancel(); offerScreenshotCancel = null; }
   clearInterval(timer);
@@ -964,10 +966,10 @@ function addPlace(name) {
   return place;
 }
 
-// Average of the last 10 waits, in minutes, or null if never timed.
+// Lifetime recorded wait, in minutes, or null if never timed.
 function avgWait(p) {
-  const recent = (p.waits || []).slice(-10);
-  return recent.length ? recent.reduce((a, w) => a + w.mins, 0) / recent.length : null;
+  const recorded = (p.waits || []).filter(w=>Number.isFinite(w.mins)&&w.mins>=0&&w.mins<=1440);
+  return recorded.length ? recorded.reduce((a, w) => a + w.mins, 0) / recorded.length : null;
 }
 
 const placeName = (p) => esc(p.name) + (p.area ? ` <span class="muted">· ${esc(p.area)}</span>` : '');
@@ -1274,10 +1276,11 @@ function renderOffer(view) {
         </details>
       </section>
       <div id="order-result" class="offer-preview" aria-live="polite"></div>
+      <section id="offer-traffic" class="traffic-status" aria-label="Traffic estimate" hidden></section>
       ${simple ? '' : '<div id="offer-place"></div>'}
       <p class="error" id="offer-error" role="alert" hidden></p>
       <button class="btn primary huge" type="button" id="take">${simple ? 'Confirm' : 'Picked up'}</button>
-      ${simple ? '<p class="muted small">Estimated from mileage and your configured speed and stop allowance, before tax. Actual waiting and return travel may change the result.</p>' : `<details class="offer-extra"${o.mins !== '' ? ' open' : ''}><summary>Offer time & calculation</summary>
+      ${simple ? '<p class="muted small" id="offer-estimate-note">Estimated from mileage and your configured speed and stop allowance, before tax. Actual waiting and return travel may change the result.</p>' : `<details class="offer-extra"${o.mins !== '' ? ' open' : ''}><summary>Offer time & calculation</summary>
         <label class="field"><span>Minutes <small>(optional, if the offer shows a time)</small></span>
           <input name="mins" type="number" inputmode="numeric" min="0" placeholder="Leave blank to estimate" value="${esc(o.mins)}"></label>
         <p class="muted small" id="offer-calculation"></p>
@@ -1286,20 +1289,29 @@ function renderOffer(view) {
     </form>`;
 
   const f = $('#of');
+  let traffic=null,trafficState={status:'idle',result:null},trafficDisposed=false,addressTimer=null,expiryTimer=null;
+  const matchedPickup=()=>simple?TrafficModel.matchPlace(store.order.offerDetails?.pickup,store.places):getPlace(store.order.placeId);
+  const trafficStops=()=>TrafficModel.stops(store.settings,matchedPickup(),store.deliveries,store.order.offerDetails?.dropoffs?.length||1);
+  const requestTraffic=()=>{clearTimeout(addressTimer);traffic?.begin();traffic?.addresses(store.order.offerDetails,trafficStops());};
   const screenshot = $('#offer-screenshot'), importStatus = $('#screenshot-status'), cancelScreenshot = $('#cancel-screenshot');
   const pickupInput = $('#screenshot-pickup'), dropoffInput = $('#screenshot-dropoffs');
-  const saveLocations = () => setOrder({offerDetails:{...store.order.offerDetails,pickup:pickupInput.value.trim(),dropoffs:dropoffInput.value.split('\n').map(value=>value.trim()).filter(Boolean)}});
+  const saveLocations = () => {
+    setOrder({offerDetails:{...store.order.offerDetails,pickup:pickupInput.value.trim(),dropoffs:dropoffInput.value.split('\n').map(value=>value.trim()).filter(Boolean)}});
+    if(TrafficSettings.config().enabled){traffic?.cancel('Addresses changed. Updating traffic…');clearTimeout(addressTimer);addressTimer=setTimeout(requestTraffic,1000);}
+  };
   pickupInput.oninput = saveLocations; dropoffInput.oninput = saveLocations;
   screenshot.onchange = () => {
     if (offerScreenshotCancel) offerScreenshotCancel();
     const file = screenshot.files[0];
     if (!file) return;
+    clearTimeout(addressTimer);traffic?.begin();
     if (!window.OfferOCR?.read) { screenshot.value=''; importStatus.textContent='The screenshot reader is unavailable. Refresh the app or enter details manually.'; return; }
     const controller = new AbortController();let done = false;
     const before = {fee:f.fee.value,miles:f.miles.value,pickup:pickupInput.value,dropoffs:dropoffInput.value};
     const stop = message => {
       if (done) return;done = true;controller.abort();clearTimeout(deadline);screenshot.value='';cancelScreenshot.hidden=true;
       if (message && f.isConnected) importStatus.textContent=message;
+      if(message)traffic?.cancel('Screenshot reading stopped. Using the mileage estimate.');
     };
     const deadline = setTimeout(()=>stop('Reading reached the 10-second limit. Check your connection on first use, try again, or enter the details manually.'),10000);
     offerScreenshotCancel=()=>stop();
@@ -1316,9 +1328,10 @@ function renderOffer(view) {
       if(dropoffInput.value === before.dropoffs)dropoffInput.value=result.dropoffs.join('\n');
       setOrder({offerDetails:{source:'screenshot',importedAt:new Date().toISOString(),pickup:pickupInput.value.trim(),dropoffs:dropoffInput.value.split('\n').map(value=>value.trim()).filter(Boolean)}});
       $('#screenshot-review').hidden=false;$('#screenshot-review').open=true;update();
+      traffic?.addresses(store.order.offerDetails,trafficStops());
       importStatus.textContent='Reading complete—check fee, mileage and locations before Confirm. '+warnings.join(' ');
     }).catch(error=>{
-      if(!done&&f.isConnected)importStatus.textContent='Could not read this screenshot. '+(error.message?.includes('Choose a')?error.message:'Enter the details manually or try again.');
+      if(!done&&f.isConnected){importStatus.textContent='Could not read this screenshot. '+(error.message?.includes('Choose a')?error.message:'Enter the details manually or try again.');traffic?.cancel('Screenshot could not be read. Using the mileage estimate.');}
     }).finally(()=>stop());
   };
   const update = () => {
@@ -1326,10 +1339,23 @@ function renderOffer(view) {
     setOrder({ fee: f.fee.value.trim(), miles: f.miles.value.trim(), mins: simple ? '' : f.mins.value.trim() });
     const { fee: feeText, miles: milesText, mins: minsText, placeId } = store.order;
     const s = store.settings;
-    const place = simple ? null : getPlace(placeId);
+    const place = simple ? (TrafficSettings.config().enabled?matchedPickup():null) : getPlace(placeId);
     const wait = place ? avgWait(place) : null;
     const fee = parseFloat(feeText), miles = parseFloat(milesText), mins = parseFloat(minsText);
-    const r = feeText !== '' && milesText !== '' && fee >= 0 && miles >= 0 ? calcOrder(s, fee, miles, mins, wait) : null;
+    const enabled=TrafficSettings.config().enabled;
+    const route=enabled?trafficState.result:null,usingTraffic=!!route&&!(mins>0);
+    const basicTotal=enabled&&!route&&!!store.order.offerDetails?.pickup&&!(mins>0);
+    const stopEstimate=basicTotal?trafficStops():null;
+    const basicMinutes=basicTotal?(s.townMph>0?miles/s.townMph*60:0)+stopEstimate.total:null;
+    const r = feeText !== '' && milesText !== '' && fee >= 0 && miles >= 0 ? calcOrder(s, fee, usingTraffic?route.miles:miles, usingTraffic?route.total:basicTotal?basicMinutes:mins, wait) : null;
+    if($('#offer-estimate-note'))$('#offer-estimate-note').textContent=usingTraffic?'Estimated total job time includes traffic-aware driving, collection delay and parking/handover. Profit is before tax and excludes travel after the final drop-off.':basicTotal?'Basic total-time estimate uses offer miles, configured speed, collection wait and handover allowances. Live traffic is not included.':'Estimated from mileage and your configured speed and stop allowance, before tax. Actual waiting and return travel may change the result.';
+    const trafficHost=$('#offer-traffic');trafficHost.hidden=!TrafficSettings.config().enabled;
+    if(!trafficHost.hidden){
+      const waitDescription=route?(route.stops.learned?`lifetime average of ${route.stops.samples} recorded waits at ${esc(route.stops.placeName)}`:`Settings default · ${route.stops.samples} recorded waits; needs 3`):'';
+      trafficHost.innerHTML=`<p class="small" role="status">${esc(trafficState.message||'Upload an offer screenshot to include traffic.')}</p><details class="traffic-breakdown"><summary>Time breakdown & assumptions</summary>${route?`<div class="traffic-drive"><b>${num(route.drive)} min driving · ${num(route.miles)} mi</b><span class="google-attribution" translate="no">Google Maps</span></div><p class="muted small">${num(route.stops.wait)} min collection · ${waitDescription} + ${num(route.stops.handover)} min parking/handover across ${route.stops.dropoffs} drop-off(s). GPS ±${Math.ceil(route.accuracy)} m. Postcode centres are approximate.${mins>0?' Your entered Minutes overrides this prediction.':''}</p><p class="muted small">Effective profit/hour uses total job time. Preview costs use route mileage once; the original entered offer miles remain your saved job mileage. Excludes time/miles after the final drop-off, depreciation and tax.</p>`:'<p class="muted small">The current verdict uses entered miles, configured speed and stop allowance until traffic is available.</p>'}<button class="btn link" type="button" id="traffic-retry"${['finding','routing'].includes(trafficState.status)?' disabled':''}>${route?'Refresh traffic':'Retry traffic from these addresses'}</button></details>`;
+      if(route)trafficHost.querySelector('.traffic-breakdown').insertAdjacentHTML('beforebegin','<span class="google-attribution" translate="no">Google Maps</span>');
+      $('#traffic-retry').onclick=requestTraffic;
+    }
     if (!r) {
       $('#order-result').innerHTML = `<div class="offer-empty muted">Type the fee and miles.<br>Your estimated £/hr appears here.</div>`;
       if ($('#offer-calculation')) $('#offer-calculation').textContent = 'Leave Minutes blank to estimate time from mileage, your configured speed and restaurant wait.';
@@ -1341,15 +1367,15 @@ function renderOffer(view) {
       : `${num(s.stopMins)} min stops`;
     $('#order-result').innerHTML = `
       <div class="offer-verdict ${r.grade}">
-        <div class="offer-verdict-heading"><div class="offer-rate">${money(r.hourly)}<small>/hr profit</small></div>
+        <div class="offer-verdict-heading"><div class="offer-rate">${money(r.hourly)}<small>${usingTraffic||basicTotal?'/hr effective profit':'/hr profit'}</small></div>
         <div class="verdict"><span class="verdict-icon" aria-hidden="true">${icon}</span>${word}</div></div>
         <div class="row3">
           <div><b>${money(r.profit)}</b><small>profit</small></div>
           <div><b>${money(r.costs)}</b><small>costs</small></div>
-          <div><b>${Math.round(r.mins)} min</b><small>${r.estimated ? 'estimated' : 'from offer'}</small></div>
+          <div><b id="offer-total-time">${Math.round(r.mins)} min</b><small>${usingTraffic ? 'total job time (est.)' : basicTotal ? 'total time (basic)' : r.estimated ? 'estimated' : 'from offer'}</small></div>
         </div>
       </div>`;
-    if ($('#offer-calculation')) $('#offer-calculation').innerHTML = `${r.estimated ? `Time estimated: ${num(miles)} mi at ${num(s.townMph)} mph + ${stops}. ` : 'Uses the entered offer time. '}Worth taking from ${money(s.goodPerHour)}/hr, borderline from ${money(s.okPerHour)}/hr`;
+    if ($('#offer-calculation')) $('#offer-calculation').innerHTML = `${usingTraffic?'Uses traffic-aware driving + collection and handover estimates. Route mileage replaces offer miles in this preview; it is not added twice. ':r.estimated ? `Time estimated: ${num(miles)} mi at ${num(s.townMph)} mph + ${stops}. ` : 'Uses the entered offer time. '}Worth taking from ${money(s.goodPerHour)}/hr, borderline from ${money(s.okPerHour)}/hr`;
   };
 
   const showPlace = () => {
@@ -1385,14 +1411,14 @@ function renderOffer(view) {
     // Also give shifts started by an older app version a stable link.
     if (active && !active.id) store.active = { ...active, id: newId() };
     const order = store.order;
-    const place = getPlace(order.placeId);
+    const place = simple ? (TrafficSettings.config().enabled ? matchedPickup() : null) : getPlace(order.placeId);
     const screenshotName = order.offerDetails?.pickup?.split(',')[0]?.trim() || '';
     setOrder({ step: simple ? 'deliver' : 'pickup', id: order.id || newId(), acceptedAt: order.acceptedAt || new Date().toISOString(),
-      workflowMode:simple ? 'simple' : 'detailed', ...(simple ? {placeId:null,arrivedAt:null,collectedAt:null,mins:''} : {}),
+      workflowMode:simple ? 'simple' : 'detailed', ...(simple ? {placeId:place?.id||null,arrivedAt:null,collectedAt:null,mins:''} : {}),
       platformId: order.acceptedAt ? order.platformId : platform.id,
       platformName: order.acceptedAt ? order.platformName : platform.name,
-      shiftId: order.shiftId || store.active?.id || null, restaurantName: simple ? screenshotName : place?.name || screenshotName, settings: order.settings || store.settings });
-    const pickup = !simple && (EarningsAreas.point(place?.loc) || EarningsAreas.point(place?.spot));
+      shiftId: order.shiftId || store.active?.id || null, restaurantName: place?.name || screenshotName, settings: order.settings || store.settings });
+    const pickup = place && (EarningsAreas.point(place.loc) || EarningsAreas.point(place.spot));
     if (pickup && !order.pickupLocation) setOrder({pickupLocation:{...pickup,source:place?.postcodeOnly?'postcode':'place',...(place?.postcode?{postcode:place.postcode}:{})}});
     render();
   };
@@ -1401,6 +1427,11 @@ function renderOffer(view) {
     store.order = { ...EMPTY_ORDER }; render();
   };
   if (!simple) showPlace();
+  traffic=OfferTraffic.create(state=>{if(trafficDisposed||!f.isConnected)return;trafficState=state;clearTimeout(expiryTimer);if(state.result)expiryTimer=setTimeout(()=>traffic.cancel('Traffic estimate expired. Refresh or use the mileage estimate.'),90000);update();});
+  const visibility=()=>{if(document.hidden&&['finding','routing'].includes(trafficState.status))traffic.cancel('Traffic lookup interrupted while the app was hidden. Using the mileage estimate.');};
+  document.addEventListener('visibilitychange',visibility);
+  disposeOfferTraffic=()=>{trafficDisposed=true;clearTimeout(addressTimer);clearTimeout(expiryTimer);document.removeEventListener('visibilitychange',visibility);traffic.cancel();};
+  OfferTraffic.preload();
   update();
   if (store.order.fee === '') f.fee.focus();
 }
@@ -1753,7 +1784,7 @@ function renderPlace(view, id) {
     <div class="card">
       <h2>Wait times</h2>
       ${wait !== null
-        ? `<div class="facts"><div><b>${Math.round(wait)} min</b><small>avg wait (last 10)</small></div><div><b>${p.waits.length}</b><small>visits</small></div></div>
+        ? `<div class="facts"><div><b>${Math.round(wait)} min</b><small>lifetime avg wait</small></div><div><b>${p.waits.length}</b><small>visits</small></div></div>
            ${waits.filter(w => !visits.some(d => d.id === w.orderId)).map((w) => `<div class="line"><span>${dateLabel(w.at)} ${timeLabel(w.at)}</span><b>${num(w.mins)} min</b></div>`).join('')}`
         : '<p class="muted small">Timed automatically when you use "I\'ve arrived" and "Got the food" on an order.</p>'}
       ${visits.length ? '<p class="muted small">Correct each completed delivery below. Changes update this place’s average.</p>' : ''}
@@ -1857,6 +1888,7 @@ function renderSettings(view) {
     </label>`;
 
   view.innerHTML = `
+    <div id="traffic-settings-host"></div>
     <section class="card">
       <h2>Job workflow</h2>
       <div class="chips two" role="group" aria-label="Job workflow">
@@ -1917,6 +1949,7 @@ function renderSettings(view) {
       <input type="file" id="file" accept=".json,application/json" hidden>
     </div>`;
 
+  TrafficSettings.render($('#traffic-settings-host'));
   renderPlatformSelector();
   $('#capture-setting').onclick = () => {
     save('sp.captureDeliveryLocation', !captureEnabled());
@@ -1962,7 +1995,7 @@ function renderSettings(view) {
   const persist = (announce) => {
     const d = read();
     if (d.mpg <= 0) return toast('MPG must be more than 0');
-    store.settings = d;
+    store.settings = {...store.settings,...d};
     if (announce) toast('Settings saved');
   };
   f.addEventListener('input', updateDerived);

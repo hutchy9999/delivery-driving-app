@@ -1,0 +1,50 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
+const {chromium,devices}=require('playwright');
+const AXE=fs.readFileSync(require.resolve('axe-core/axe.min.js'),'utf8');
+const BASE='http://localhost:8765/';
+const key='TEST_BROWSER_KEY_NOT_A_REAL_CREDENTIAL';
+const file={name:'offer.png',mimeType:'image/png',buffer:Buffer.from('synthetic image')};
+const details={fee:12,miles:9,pickup:"McDonald's, Salford M5 3AA",dropoffs:['Customer name M1 1AA','Second customer M2 2AA'],warnings:[]};
+(async()=>{const browser=await chromium.launch();try{
+ const ctx=await browser.newContext({...devices['Pixel 7'],serviceWorkers:'block'});
+ const page=await ctx.newPage(),errors=[],external=[];page.on('pageerror',e=>{errors.push(e.message);console.error('Page error:',e.message);});page.on('dialog',d=>d.accept());
+ await ctx.route('https://api.postcodes.io/**',r=>{external.push(r.request().url());return r.abort();});
+ await ctx.route('https://maps.googleapis.com/**',r=>r.abort());
+ await ctx.addInitScript(()=>{
+   window.calls=[];window.geoCalls=0;window.geoMode='good';window.routeMode='good';window.pendingRoutes=[];window.watches=new Set();
+   navigator.geolocation.watchPosition=(success,failure)=>{const id=++geoCalls;watches.add(id);if(geoMode==='denied'){queueMicrotask(()=>failure({code:1}));return id;}if(geoMode==='silent')return id;queueMicrotask(()=>success({coords:{latitude:53.48,longitude:-2.25,accuracy:20},timestamp:Date.now()}));return id;};
+   navigator.geolocation.clearWatch=id=>watches.delete(id);
+   window.google={maps:{importLibrary:async()=>({Route:{computeRoutes:async request=>{
+     calls.push(request);if(routeMode==='pending')return new Promise(resolve=>pendingRoutes.push(resolve));if(routeMode==='fail')throw Error('provider error');
+     return {routes:[{durationMillis:typeof request.origin==='string'?900000:600000,distanceMeters:typeof request.origin==='string'?4828.032:1609.344}],...(routeMode==='noTraffic'?{fallbackInfo:{routingMode:'TRAFFIC_UNAWARE'}}:{})};
+   }}})}};
+ });
+ await page.goto(BASE+'#settings');assert.equal(await page.evaluate(()=>geoCalls),0);
+ await page.fill('#traffic-key',key);await page.fill('#traffic-wait','8');await page.click('#traffic-settings-form button[type=submit]');assert.match(await page.textContent('#traffic-settings-status'),/enabled/);
+ // Ordinary fuel changes preserve the separate wait setting.
+ await page.fill('[name=fuelPrice]','1.4');await page.locator('[name=fuelPrice]').blur();assert.equal(await page.evaluate(()=>JSON.parse(localStorage['sp.settings']).trafficWaitMins),8);
+ await page.goto(BASE+'#order');await page.locator('#take').waitFor();assert.equal(await page.evaluate(()=>geoCalls),0,'no GPS until an offer action');
+ const ocr=async(mode='good')=>page.evaluate(({details,mode})=>{OfferOCR.read=async()=>mode==='pending'?new Promise(resolve=>window.finishOCR=()=>resolve(details)):details;},{details,mode});
+ await ocr();await page.setInputFiles('#offer-screenshot',file);await page.getByText('Traffic included ·',{exact:false}).waitFor();
+ assert.equal(await page.textContent('#offer-total-time'),'39 min','25 driving + 8 collection + 6 handover');assert.match(await page.textContent('#order-result'),/effective profit/);
+ const expected=(12-4*(1.4*4.54609/45+.05)-39/60*1.16)/(39/60);assert.match(await page.textContent('.offer-rate'),new RegExp(expected.toFixed(2).replace('.','\\.')),'effective rate divides net by whole job duration');
+ let calls=await page.evaluate(()=>calls);assert.equal(calls.length,2);assert.equal(calls[0].destination,'M5 3AA, UK');assert.deepEqual(calls[0].origin,{lat:53.48,lng:-2.25});assert.deepEqual(calls[1].intermediates,[{location:'M1 1AA, UK'}]);assert.equal(calls[1].destination,'M2 2AA, UK');assert.ok(!JSON.stringify(calls).includes('Customer'));assert.deepEqual(external,[],'traffic makes no Postcodes.io requests');
+ assert.equal(await page.evaluate(()=>watches.size),0,'GPS watch stops after a fresh fix');
+ await page.fill('[name=fee]','13');assert.equal(await page.evaluate(()=>calls.length),2,'editing payment does not spend more routing requests');await page.fill('[name=fee]','12');
+ await page.click('.traffic-breakdown summary');assert.match(await page.textContent('#offer-traffic'),/Settings default/);assert.match(await page.textContent('#offer-traffic'),/4 mi/);
+ for(const colorScheme of ['light','dark'])for(const width of [320,393]){await page.emulateMedia({colorScheme});await page.setViewportSize({width,height:850});await page.addScriptTag({content:AXE});assert.deepEqual(await page.evaluate(async()=>(await axe.run(document,{runOnly:['wcag2a','wcag2aa','wcag22aa']})).violations.map(v=>v.id)),[]);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);if(process.env.SCREENSHOT_DIR&&width===393)await page.screenshot({path:path.join(process.env.SCREENSHOT_DIR,`traffic-offer-${colorScheme}.png`),fullPage:true});}
+ await page.click('#take');await page.locator('#delivered').waitFor();const accepted=await page.evaluate(()=>JSON.parse(localStorage['sp.order']));assert.equal(accepted.miles,'9','entered offer miles remain saved');assert.ok(!JSON.stringify(accepted).includes('durationMillis'));assert.ok(!JSON.stringify(accepted).includes('53.48'));
+ await page.click('#cancel-delivery');await page.locator('#take').waitFor();
+ const place={id:'p',name:"McDonald's",postcode:'M5 3AA',waits:[10,20,30].map((mins,i)=>({at:'2026-10-2'+i+'T15:00:00Z',mins}))};
+ await page.evaluate(place=>localStorage.setItem('sp.places',JSON.stringify([place])),place);await ocr();await page.setInputFiles('#offer-screenshot',file);await page.getByText('Traffic included ·',{exact:false}).waitFor();assert.equal(await page.textContent('#offer-total-time'),'51 min');await page.click('.traffic-breakdown summary');assert.match(await page.textContent('#offer-traffic'),/lifetime average of 3/);
+ await page.click('#take');await page.locator('#delivered').waitFor();assert.equal(await page.evaluate(()=>JSON.parse(localStorage['sp.order']).placeId),'p','Simple screenshot links the exact branch without a restaurant-selection tap');await page.click('#cancel-delivery');await page.locator('#take').waitFor();
+ await page.clock.install();await ocr();await page.evaluate(()=>routeMode='pending');await page.setInputFiles('#offer-screenshot',file);await page.waitForFunction(()=>pendingRoutes.length===1);const beforeLate=await page.evaluate(()=>calls.length);await page.clock.fastForward(10000);assert.match(await page.textContent('#offer-traffic'),/10-second limit/);assert.equal(await page.locator('#take').isEnabled(),true);await page.evaluate(()=>pendingRoutes.shift()({routes:[{durationMillis:600000,distanceMeters:1609.344}]}));await page.waitForTimeout(50);assert.equal(await page.evaluate(()=>calls.length),beforeLate,'late first leg does not launch second leg');assert.match(await page.textContent('#offer-traffic'),/10-second limit/);
+ await page.evaluate(()=>geoMode='denied');await page.setInputFiles('#offer-screenshot',file);await page.getByText('Location permission blocked',{exact:false}).waitFor();assert.equal(await page.locator('#take').isEnabled(),true);await page.evaluate(()=>{geoMode='good';routeMode='fail';});await page.setInputFiles('#offer-screenshot',file);await page.getByText('Traffic lookup failed.',{exact:false}).waitFor();
+ await page.evaluate(()=>routeMode='noTraffic');await page.setInputFiles('#offer-screenshot',file);await page.getByText('Live traffic unavailable.',{exact:false}).waitFor();
+ await page.evaluate(()=>routeMode='pending');await page.setInputFiles('#offer-screenshot',file);await page.waitForFunction(()=>pendingRoutes.length===1);await page.click('#take');await page.locator('#delivered').waitFor();const running=await page.evaluate(()=>localStorage['sp.order']);await page.evaluate(()=>pendingRoutes.shift()({routes:[{durationMillis:1,distanceMeters:1}]}));await page.waitForTimeout(50);assert.equal(await page.evaluate(()=>localStorage['sp.order']),running,'acceptance cancels late traffic UI/storage updates');await page.click('#cancel-delivery');await page.locator('#take').waitFor();
+ await page.evaluate(()=>{localStorage.setItem('sp.trafficUsage',JSON.stringify({...TrafficSettings.usage(),count:4499}));routeMode='good';});const beforeLimit=await page.evaluate(()=>calls.length);await page.setInputFiles('#offer-screenshot',file);await page.getByText('monthly traffic limit',{exact:false}).waitFor();assert.equal(await page.evaluate(()=>calls.length),beforeLimit,'local cap prevents route calls');
+ await page.goto(BASE+'#settings');const download=page.waitForEvent('download');await page.click('#backup');const backup=fs.readFileSync(await(await download).path(),'utf8');assert.ok(!backup.includes(key),'browser key excluded from backups');assert.ok(!backup.includes('durationMillis'),'Google results excluded from backups');
+ for(const colorScheme of ['light','dark']){await page.emulateMedia({colorScheme});await page.addScriptTag({content:AXE});assert.deepEqual(await page.evaluate(async()=>(await axe.run(document,{runOnly:['wcag2a','wcag2aa','wcag22aa']})).violations.map(v=>v.id)),[]);}
+ await page.click('#traffic-off');assert.equal(await page.evaluate(()=>localStorage.getItem('sp.googleRoutesKey')),null);await page.goto(BASE+'#order');await ocr();const gpsBefore=await page.evaluate(()=>geoCalls);await page.setInputFiles('#offer-screenshot',file);await page.getByText('Reading complete—',{exact:false}).waitFor();assert.equal(await page.evaluate(()=>geoCalls),gpsBefore,'disabled feature requests no GPS');assert.equal(await page.locator('#offer-traffic').isHidden(),true);
+ assert.deepEqual(external,[]);assert.deepEqual(errors,[]);console.log('Traffic UI passed: settings, Google-only postcode routing, total-time/net rate, lifetime waits, multiple drop-offs, quota, privacy, cancellation/deadlines, GPS/API failure and phone accessibility.');
+}finally{await browser.close();}})().catch(e=>{console.error(e);process.exitCode=1;});
