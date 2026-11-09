@@ -29,4 +29,54 @@ public class StopDetectorTest {
         d.accept(start+610000,53.484,-2.25,10,10);assertNull(d.accept(start+620000,53.485,-2.25,10,10));
     }
     @Test public void inaccurateFixIsIgnored(){assertNull(detector(true).accept(start,53.48,-2.25,200,0));}
+
+    @Test public void drivingInsidePickupAreaDoesNotAccumulateWait() {
+        StopDetector d = detector(false);
+        d.accept(start, 53.48, -2.25, 15, 0);
+        for (int i = 1; i <= 36; i++) {
+            assertNull(d.accept(start + i * 10000L, 53.4805, -2.25, 15, 8));
+        }
+        assertNull(d.accept(start + 370000, 53.484, -2.25, 15, 8));
+        assertNull(d.accept(start + 380000, 53.485, -2.25, 15, 8));
+    }
+
+    @Test public void positionDriftAcrossPickupAreaDoesNotAccumulateWaitWithoutSpeed() {
+        StopDetector d = detector(false);
+        for (int i = 0; i <= 36; i++) {
+            assertNull(d.accept(start + i * 10000L, 53.479 + i * 0.00007, -2.25, 10, 0));
+        }
+        assertNull(d.accept(start + 370000, 53.484, -2.25, 10, 8));
+        assertNull(d.accept(start + 380000, 53.485, -2.25, 10, 8));
+    }
+
+    @Test public void shortStopDoesNotPreventLaterCollection() {
+        assertLaterCollection(false);
+    }
+
+    @Test public void uncertainStopDoesNotPreventLaterCollection() {
+        assertLaterCollection(true);
+    }
+
+    private void assertLaterCollection(boolean uncertain) {
+        StopDetector d = detector(false);
+        int firstStopSamples = uncertain ? 37 : 12;
+        for (int i = 0; i < firstStopSamples; i++) {
+            d.accept(start + i * 10000L, 53.48, -2.25, uncertain && i == 2 ? 40 : 15, 0);
+        }
+        long firstDeparture = start + firstStopSamples * 10000L;
+        assertNull(d.accept(firstDeparture, 53.484, -2.25, 15, 8));
+        assertNull(d.accept(firstDeparture + 10000, 53.485, -2.25, 15, 8));
+
+        long arrival = firstDeparture + 30000;
+        for (int i = 0; i <= 36; i++) {
+            assertNull(d.accept(arrival + i * 10000L, 53.48, -2.25, 15, 0));
+        }
+        // Driving away from the stop can be confirmed inside the pickup area.
+        assertNull(d.accept(arrival + 370000, 53.4805, -2.25, 15, 8));
+        StopDetector.Stop stop = d.accept(arrival + 380000, 53.481, -2.25, 15, 8);
+        assertNotNull(stop);
+        assertTrue(stop.eligible);
+        assertEquals(arrival, stop.arrival);
+        assertEquals(arrival + 370000, stop.departure);
+    }
 }

@@ -1,4 +1,4 @@
-# Android trial 0.1.1
+# Android trial 0.1.2
 
 First device-trial build for James's Nothing Phone (2a), Android16. Capacitor8 packages existing screens; a Java foreground service and SQLite database add shift GPS. Targets API36, minimum Android10. This is not a Play Store release.
 
@@ -19,7 +19,7 @@ Use one version as the main record keeper: browser and APK do not synchronize. I
 - Requests fixes every **10 seconds**, minimum **5 seconds**; actual cadence depends on Android/signal/battery. Fresh fixes reporting accuracy ≤50m are retained. Jumps and long gaps are excluded from mileage. GPS mileage is approximate; final shift costs still use odometers.
 - Raw points/events remain in app-private SQLite, without automatic upload. Existing jobs/places remain in WebView local storage. Explicit private JSON exports combine both.
 - Expected pickup comes from an independently saved point or a temporary approximate Google route endpoint after traffic lookup. Without a target, routes record but restaurant waiting is not invented. Screenshot text alone cannot locate an unknown venue offline.
-- Known targets use a 100m radius, postcode targets 180m, departure hysteresis and two outside readings. Low-speed arrival requires reported accuracy ≤35m. A known-point stop needs one minute to train; an approximate target needs five minutes, at least three samples and ≤35m accuracy throughout. Gaps over two minutes reset the candidate. Uncertain/shorter stops are excluded from learning.
+- Known targets use a 100 m radius and postcode targets use 180 m to start looking for a stop. Dwell requires low-speed readings (up to 1.5 m/s) within 40 m of the initial stop position. Two consecutive readings showing movement confirm departure. A stop needs at least three samples with reported accuracy of 35 m or better, plus one minute of observed dwell for known targets or five minutes for approximate targets. Gaps over two minutes reset the candidate. Short or uncertain stops leave the detector looking for a later pickup.
 - These are **GPS collection-stop estimates**, including parking/walking, not food-ready times or guaranteed venue identification. Traffic queues, nearby businesses and shared postcodes can confuse detection. Correct inaccurate waits with existing tools. Only one pickup target/stop per job is currently supported.
 - Eligible stops link to the job and may create a uniquely named place using reviewed screenshot text and independently measured GPS centroid. Simple arrival/collection timestamps stay unknown. Manual corrections take precedence.
 - Until **three independent valid branch observations**, prediction uses Settings' default wait. Afterwards it uses the lifetime mean, deduplicating corrected jobs.

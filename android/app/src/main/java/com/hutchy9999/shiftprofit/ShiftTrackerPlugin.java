@@ -89,7 +89,7 @@ public final class ShiftTrackerPlugin extends Plugin {
             try{
                 String text=call.getString("text","");
                 if(call.getBoolean("includeTracking",false)){JSONObject backup=new JSONObject(text);backup.put("nativeTracking",store().exportData());text=backup.toString(2);}
-                if(call.getBoolean("includeDiagnostics",false)){JSONObject log=new JSONObject(text);log.put("nativeEvents",store().diagnostics());log.put("androidApi",Build.VERSION.SDK_INT);log.put("appVersion","0.1.1-trial");text=log.toString(2);}
+                if(call.getBoolean("includeDiagnostics",false)){JSONObject log=new JSONObject(text);log.put("nativeEvents",store().diagnostics());log.put("androidApi",Build.VERSION.SDK_INT);log.put("appVersion","0.1.2-trial");text=log.toString(2);}
                 try(OutputStream output=getContext().getContentResolver().openOutputStream(uri,"wt")){if(output==null)throw new IllegalStateException();output.write(text.getBytes(StandardCharsets.UTF_8));}
                 JSObject out=new JSObject();out.put("saved",true);call.resolve(out);
             }catch(Exception e){call.reject("Could not save the backup. Choose a writable destination and retry.");}
