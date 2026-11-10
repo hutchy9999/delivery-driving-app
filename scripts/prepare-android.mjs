@@ -8,6 +8,8 @@ await mkdir(out,{recursive:true});
 for(const name of ['index.html','app.js','calc.js','diagnostics.js','style.css','manifest.webmanifest','offer-ocr.js','traffic.js','traffic-model.js','traffic-settings.js','areas.js','areas-ui.js','privacy.html','terms.html'])await copyFile(path.join(root,name),path.join(out,name));
 for(const name of ['icons','vendor'])await cp(path.join(root,name),path.join(out,name),{recursive:true});
 let html=await readFile(path.join(out,'index.html'),'utf8');
+// Capacitor fits the Android WebView inside the system bars. The browser build still uses viewport-fit=cover.
+html=html.replace(', viewport-fit=cover','');
 html=html.replace('<script src="app.js"></script>','<script src="native-tracking.js"></script>\n  <script src="app.js"></script>');
 await writeFile(path.join(out,'index.html'),html);
 // Adapter is added only to the APK; ordinary browser installations stay intact.
