@@ -1,5 +1,19 @@
 # Development notes and decisions
 
+## Follow-up: preserve pickup target on APK reopening (27 October 2026)
+
+At James's request, fix only the first review finding: a recreated WebView forgot its transient pickup target and overwrote the native service's still-valid target with an empty one. Native state now reports the attached job ID and whether it has a matching, unexpired, unfinished pickup target, without exposing coordinates. UI reconciliation preserves that target when it has no replacement. Existing expiry is not extended, and targets from expired/different jobs are not reused. A regression test reproduced the overwrite before the change and passes afterwards, alongside the existing native-adapter checks. APK version 0.1.1-trial replaces 0.1.0-trial using the same signing identity. Other review findings are intentionally outside this fix.
+
+## Follow-up: optional Android trial and diagnostics (27 October 2026)
+
+James requested an APK preserving existing features with on-shift GPS and automatic pickup-stop estimates to avoid duplicating platform taps. His Nothing Phone (2a) runs Android16. Capacitor8 packages shared screens; a Java location foreground service records private SQLite points/events while other apps are open or the screen is locked. Tracking is opt-in and shift-scoped, requests ten-second cadence (five-second minimum), and has visible notification/pause and explicit end/cancel stop. Raw traces are not automatically uploaded. Final costs still use odometers.
+
+Pickup inference compares independently measured stops with expected targets, records uncertainty and preserves Simple mode's unknown timestamps. Manual corrections override learning. Three independent valid branch observations precede lifetime mean use; Settings default applies earlier. Google comparison targets are temporary and excluded from backups. Single-pickup inference needs field validation.
+
+The supplied private web backup round-trip passed with external requests blocked: 2 shifts, 7 deliveries, 2 places and all original fields/settings/locations preserved. No personal file, credential or signing key is committed/packaged. Android save-picker backups include native readings; legacy restore switches tracking off. Web/APK storage remain separate. Keep private signing files for future compatible updates.
+
+James additionally requested end-of-day diagnostics to share for analysis. Settings exposes bounded local logs, download and clear. Workflow/OCR/traffic/error/lifecycle and native service/GPS quality/gap/pickup decisions are retained without screenshots, addresses, exact coordinates, fees or API keys. Logs have seven-day/size limits and logging failures cannot block core saving. See [Android trial notes](ANDROID_TRIAL.md) for build, migration, validation and limits. Cache v33 adds diagnostics to the web offline shell; the APK skips service workers and bundles its own assets.
+
 ## Follow-up: Google-only traffic-aware offer duration (27 October 2026)
 
 James enabled Routes API and Maps JavaScript API, restricted a browser key to his GitHub Pages host and the two APIs, and explicitly authorised sending current foreground GPS position plus offer pickup/drop-off postcodes to **Google only**. A first network implementation including Postcodes.io was rejected by automatic review; after clarification James chose Google only. No new traffic postcode lookups use Postcodes.io. Existing restaurant search and map postcode lookup retain their prior services. The key is entered directly in Settings on the user's phone, not in chat or GitHub. Device-only credentials/preferences/usage are excluded from normal backups and cost snapshots.

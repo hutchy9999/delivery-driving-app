@@ -43,7 +43,7 @@
   });}
   function create(onChange){
     let active=null;
-    const emit=value=>onChange(value);
+    const emit=value=>{root.Diagnostics?.record('traffic_status',{status:value.status});onChange(value);};
     function cancel(message){if(active){clearTimeout(active.timer);active.controller.abort();active=null;}emit({status:message?'fallback':'idle',message:message||'',result:null});}
     function begin(){
       cancel();const c=TrafficSettings.config();if(!c.enabled||!c.key)return;
@@ -68,13 +68,16 @@
         const common={travelMode:'DRIVING',routingPreference:'TRAFFIC_AWARE',fields:['durationMillis','distanceMeters'],region:'uk',language:'en-GB',computeAlternativeRoutes:false,optimizeWaypointOrder:false};
         // Addresses are reduced to full UK postcodes, sent directly to Google.
         const point=pc=>pc+', UK';
-        const first=TrafficModel.routeValues(await Route.computeRoutes({...common,origin:{lat:origin.lat,lng:origin.lng},destination:point(pickup)}));
+        const firstResponse=await Route.computeRoutes({...common,fields:root.NativeTracking?.isNative?[...common.fields,'legs.endLocation']:common.fields,origin:{lat:origin.lat,lng:origin.lng},destination:point(pickup)});
+        const first=TrafficModel.routeValues(firstResponse);
+        const end=root.NativeTracking?.isNative?firstResponse.routes?.[0]?.legs?.[0]?.endLocation:null;
+        const pickupTarget=end?{lat:typeof end.lat==='function'?end.lat():end.lat,lng:typeof end.lng==='function'?end.lng():end.lng}:null;
         if(!permitted())return;
         const second=TrafficModel.routeValues(await Route.computeRoutes({...common,origin:point(pickup),destination:point(drops[drops.length-1]),intermediates:drops.slice(0,-1).map(pc=>({location:point(pc)})),departureTime:new Date(Date.now()+(first.minutes+stopInfo.wait)*60000)}));
         if(!permitted())return;
         clearTimeout(session.timer);session.controller.abort();active=null;
         emit({status:'ready',message:'Traffic included · postcode-centre routes',result:{drive:first.minutes+second.minutes,miles:(first.metres+second.metres)/1609.344,
-          total:first.minutes+second.minutes+stopInfo.total,stops:stopInfo,accuracy:origin.accuracy,at:Date.now()}});
+          total:first.minutes+second.minutes+stopInfo.total,stops:stopInfo,accuracy:origin.accuracy,at:Date.now(),...(pickupTarget?{pickupTarget}:{})}});
       }catch(error){
         const known=['This phone’s monthly traffic limit has been reached. Using the mileage estimate.','Could not save the usage counter. Traffic lookup skipped.','Live traffic unavailable. Using the mileage estimate.','No usable driving route returned. Using the mileage estimate.'];
         if(active===session)cancel(known.includes(error.message)?error.message:'Traffic lookup failed. Check Google API restrictions/billing or continue with the mileage estimate.');
